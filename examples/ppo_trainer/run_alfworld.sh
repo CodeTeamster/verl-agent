@@ -1,22 +1,46 @@
 set -x
 ENGINE=${1:-vllm}
-export VLLM_ATTENTION_BACKEND=XFORMERS
+if [ $# -gt 0 ]; then shift; fi
+export VLLM_ATTENTION_BACKEND=FLASH_ATTN
+export VLLM_USE_V1=0
+export CUDA_VISIBLE_DEVICES=0,1,2,3
+export TMPDIR=/home/jovyan/ssd/yrc/tmp
+export FAST_DOWNWARD_TMPDIR=/home/jovyan/ssd/yrc/tmp/fast_downward_libs
+mkdir -p "$TMPDIR" "$FAST_DOWNWARD_TMPDIR"
 
+LOG_ROOT=outputs/train_logs/alfworld_ppo
+RUN_ID=$(date +%Y%m%d_%H%M%S)
+RUN_DIR=${LOG_ROOT}/${RUN_ID}
+mkdir -p "$RUN_DIR"
+LOG_FILE=${RUN_DIR}/train.log
+export TENSORBOARD_DIR=${RUN_DIR}/tensorboard
+exec > >(tee -a "$LOG_FILE") 2>&1
+echo "Logging stdout/stderr to ${LOG_FILE}"
+echo "Saving tensorboard logs to ${TENSORBOARD_DIR}"
+
+num_devices=$(echo $CUDA_VISIBLE_DEVICES | awk -F',' '{print NF}')
 num_cpus_per_env_worker=0.1 # The CPU resource allocated for each environment worker. If you want to use less CPU resources, you can decrease this value.
 
 train_data_size=128 # match GRPO and GiGPO configuration (16 × 8)
-val_data_size=128
+val_data_size=32
+ppo_micro_batch_size_per_gpu=1 # Per-GPU micro batch size for actor, critic, rollout log-prob, and ref log-prob.
 
 # We only use data preparation to indicate the modality and the data size.
 python3 -m examples.data_preprocess.prepare \
     --mode 'text' \
+    --local_dir './assets/datasets/' \
     --train_data_size $train_data_size \
     --val_data_size $val_data_size
 
+MODEL_PATH=/home/jovyan/ssd/yrc/model/Qwen/Qwen2.5-1.5B-Instruct
+export ALFWORLD_DATA=/home/jovyan/ssd/yrc/dataset/alfworld/
+
+gpu-dryrun down
+
+train_status=0
 python3 -m verl.trainer.main_ppo \
-    algorithm.adv_estimator=gae \
-    data.train_files=$HOME/data/verl-agent/text/train.parquet \
-    data.val_files=$HOME/data/verl-agent/text/test.parquet \
+    data.train_files=./assets/datasets/text/train.parquet \
+    data.val_files=./assets/datasets/text/test.parquet \
     data.train_batch_size=$train_data_size \
     data.val_batch_size=$val_data_size \
     data.max_prompt_length=2048 \
@@ -24,49 +48,66 @@ python3 -m verl.trainer.main_ppo \
     data.filter_overlong_prompts=True \
     data.truncation='error' \
     data.return_raw_chat=True \
-    actor_rollout_ref.model.path=Qwen/Qwen2.5-1.5B-Instruct \
-    actor_rollout_ref.actor.optim.lr=1e-6 \
+    actor_rollout_ref.model.path=${MODEL_PATH} \
+    actor_rollout_ref.model.enable_gradient_checkpointing=True \
+    actor_rollout_ref.model.attn_implementation=flash_attention_2 \
     actor_rollout_ref.model.use_remove_padding=True \
-    actor_rollout_ref.actor.ppo_mini_batch_size=256 \
-    actor_rollout_ref.actor.ppo_micro_batch_size_per_gpu=16 \
+    actor_rollout_ref.actor.optim.lr=1e-6 \
+    actor_rollout_ref.actor.ppo_mini_batch_size=$train_data_size \
+    actor_rollout_ref.actor.ppo_micro_batch_size_per_gpu=$ppo_micro_batch_size_per_gpu \
     actor_rollout_ref.actor.use_kl_loss=True \
     actor_rollout_ref.actor.kl_loss_coef=0.01 \
     actor_rollout_ref.actor.kl_loss_type=low_var_kl \
-    actor_rollout_ref.model.enable_gradient_checkpointing=True \
+    actor_rollout_ref.actor.fsdp_config.model_dtype=bf16 \
     actor_rollout_ref.actor.fsdp_config.param_offload=False \
     actor_rollout_ref.actor.fsdp_config.optimizer_offload=False \
-    actor_rollout_ref.rollout.log_prob_micro_batch_size_per_gpu=32 \
-    actor_rollout_ref.rollout.tensor_model_parallel_size=2 \
+    actor_rollout_ref.actor.use_invalid_action_penalty=True \
+    actor_rollout_ref.actor.invalid_action_penalty_coef=0.1 \
+    actor_rollout_ref.rollout.log_prob_micro_batch_size_per_gpu=$ppo_micro_batch_size_per_gpu \
+    actor_rollout_ref.rollout.tensor_model_parallel_size=1 \
     actor_rollout_ref.rollout.name=$ENGINE \
-    actor_rollout_ref.rollout.gpu_memory_utilization=0.6 \
+    actor_rollout_ref.rollout.gpu_memory_utilization=0.25 \
     actor_rollout_ref.rollout.enable_chunked_prefill=False \
     actor_rollout_ref.rollout.enforce_eager=False \
     actor_rollout_ref.rollout.free_cache_engine=False \
     actor_rollout_ref.rollout.val_kwargs.temperature=0.4 \
     actor_rollout_ref.rollout.val_kwargs.do_sample=True \
-    actor_rollout_ref.ref.log_prob_micro_batch_size_per_gpu=32 \
-    actor_rollout_ref.ref.fsdp_config.param_offload=True \
-    actor_rollout_ref.actor.use_invalid_action_penalty=True \
-    actor_rollout_ref.actor.invalid_action_penalty_coef=0.1 \
+    actor_rollout_ref.ref.log_prob_micro_batch_size_per_gpu=$ppo_micro_batch_size_per_gpu \
+    actor_rollout_ref.ref.fsdp_config.param_offload=False \
     critic.optim.lr=1e-5 \
+    critic.ppo_micro_batch_size_per_gpu=$ppo_micro_batch_size_per_gpu \
+    critic.model.path=${MODEL_PATH} \
     critic.model.use_remove_padding=True \
-    critic.model.path=Qwen/Qwen2.5-1.5B-Instruct \
+    critic.model.attn_implementation=flash_attention_2 \
+    critic.model.fsdp_config.model_dtype=bf16 \
     critic.model.enable_gradient_checkpointing=True \
-    critic.ppo_micro_batch_size_per_gpu=16 \
     critic.model.fsdp_config.param_offload=False \
     critic.model.fsdp_config.optimizer_offload=False \
+    algorithm.adv_estimator=gae \
     algorithm.use_kl_in_reward=False \
+    ray_init.include_dashboard=False \
     env.env_name=alfworld/AlfredTWEnv \
     env.seed=0 \
     env.max_steps=50 \
     env.resources_per_worker.num_cpus=$num_cpus_per_env_worker \
     trainer.critic_warmup=0 \
-    trainer.logger=['console','wandb'] \
+    trainer.logger=['console','tensorboard'] \
     trainer.project_name='verl_agent_alfworld' \
     trainer.experiment_name='ppo_qwen2.5_1.5b' \
-    trainer.n_gpus_per_node=2 \
+    trainer.default_local_dir=${RUN_DIR}/checkpoints \
+    trainer.n_gpus_per_node=$num_devices \
     trainer.nnodes=1 \
-    trainer.save_freq=-1 \
-    trainer.test_freq=5 \
+    trainer.save_freq=10 \
+    trainer.test_freq=10 \
+    trainer.max_actor_ckpt_to_keep=2 \
+    trainer.max_critic_ckpt_to_keep=2 \
     trainer.total_epochs=150 \
-    trainer.val_before_train=True $@
+    trainer.val_before_train=True "$@" || train_status=$?
+
+gpu_status=0
+gpu-dryrun up 1,2,3 || gpu_status=$?
+
+if [ "$train_status" -ne 0 ]; then
+    exit "$train_status"
+fi
+exit "$gpu_status"

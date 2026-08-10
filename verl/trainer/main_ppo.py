@@ -185,7 +185,16 @@ class TaskRunner:
             val_envs=val_envs,
         )
         trainer.init_workers()
-        trainer.fit()
+        try:
+            trainer.fit()
+        finally:
+            # Release environment actors before TaskRunner exits. Otherwise
+            # Ray force-kills them while tearing down their owner process.
+            for name, environment in (("train", envs), ("validation", val_envs)):
+                try:
+                    environment.close()
+                except Exception as exc:
+                    print(f"Warning: failed to close {name} environments cleanly: {exc}")
 
 
 def create_rl_dataset(data_paths, data_config, tokenizer, processor):

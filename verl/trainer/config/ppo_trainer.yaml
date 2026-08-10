@@ -40,6 +40,7 @@ actor_rollout_ref:
     use_liger: False
     use_fused_kernels: False
     trust_remote_code: False
+    attn_implementation: flash_attention_2
   actor:
     strategy: fsdp  # [fsdp, fsdp2], This is for backward-compatibility
     ppo_mini_batch_size: 256
@@ -86,6 +87,7 @@ actor_rollout_ref:
       offload_policy: False # only for fsdp2, offload param\grad\optimizer during train
       reshard_after_forward: True # only for fsdp2, [True, False, int between 1 and fsdp_size]
       fsdp_size: -1
+      model_dtype: bf16
   ref:
     strategy: fsdp
     fsdp_config:
@@ -170,6 +172,7 @@ critic:
     enable_activation_offload: False
     use_remove_padding: False
     trust_remote_code: ${actor_rollout_ref.model.trust_remote_code}
+    attn_implementation: flash_attention_2
     fsdp_config:
       param_offload: False
       optimizer_offload: False
@@ -179,6 +182,7 @@ critic:
         # transformer_layer_cls_to_wrap: None
         min_num_params: 0
       fsdp_size: -1
+      model_dtype: bf16
     lora_rank: 0  # Set to positive value to enable LoRA (e.g., 32)
     lora_alpha: 16  # LoRA scaling factor
     target_modules: all-linear  # all-linear or [q_proj,k_proj,v_proj,o_proj,gate_proj,up_proj,down_proj]
@@ -287,7 +291,7 @@ trainer:
 
 ray_init:
   num_cpus: null # `None` means using all CPUs, which might cause hang if limited in systems like SLURM. Please set to a number allowed then.
-
+  include_dashboard: false
 
 env:
   env_name: alfworld/AlfredTWEnv

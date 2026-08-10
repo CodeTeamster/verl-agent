@@ -82,6 +82,13 @@ class AlfworldWorker:
         image = image.cpu()  
         return image
 
+    def close(self):
+        """Release resources owned by the underlying ALFWorld environment."""
+        close = getattr(self.env, "close", None)
+        if callable(close):
+            close()
+        return True
+
 class AlfworldEnvs(gym.Env):
     def __init__(self, alf_config_path, seed, env_num, group_n, resources_per_worker, is_train=True, env_kwargs={}):
         super().__init__()
@@ -99,7 +106,11 @@ class AlfworldEnvs(gym.Env):
         self.group_n = group_n
 
         # Create Ray remote actors instead of processes
-        env_worker = ray.remote(**resources_per_worker)(AlfworldWorker)
+        # Task-event collection is unnecessary for these numerous environment actors
+        # and can crash Ray 2.43 while FlushEvents() runs at shutdown.
+        actor_options = dict(resources_per_worker)
+        actor_options.setdefault("enable_task_events", False)
+        env_worker = ray.remote(**actor_options)(AlfworldWorker)
         self.workers = []
         for i in range(self.num_processes):
             worker = env_worker.remote(config, seed + (i // self.group_n), base_env)
@@ -194,13 +205,33 @@ class AlfworldEnvs(gym.Env):
         """
         return self.prev_admissible_commands
 
-    def close(self):
-        """
-        Close all workers
-        """
-        # Kill all Ray actors
-        for worker in self.workers:
-            ray.kill(worker)
+    def close(self, timeout_s=30):
+        """Close all workers gracefully, force-killing only on timeout."""
+        if not self.workers:
+            return
+
+        workers = self.workers
+        self.workers = []
+
+        close_refs = [worker.close.remote() for worker in workers]
+        _, pending_close_refs = ray.wait(
+            close_refs, num_returns=len(close_refs), timeout=timeout_s
+        )
+        if pending_close_refs:
+            print(
+                f"Warning: {len(pending_close_refs)} ALFWorld workers did not "
+                "finish environment cleanup before timeout."
+            )
+
+        terminate_refs = [worker.__ray_terminate__.remote() for worker in workers]
+        _, pending_terminate_refs = ray.wait(
+            terminate_refs, num_returns=len(terminate_refs), timeout=timeout_s
+        )
+        if pending_terminate_refs:
+            pending_ids = {ref.hex() for ref in pending_terminate_refs}
+            for worker, terminate_ref in zip(workers, terminate_refs):
+                if terminate_ref.hex() in pending_ids:
+                    ray.kill(worker, no_restart=True)
 
 def build_alfworld_envs(alf_config_path, seed, env_num, group_n, resources_per_worker, is_train=True, env_kwargs={}):
     return AlfworldEnvs(alf_config_path, seed, env_num, group_n, resources_per_worker, is_train, env_kwargs)
