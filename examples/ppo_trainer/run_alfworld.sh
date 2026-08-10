@@ -4,8 +4,21 @@ if [ $# -gt 0 ]; then shift; fi
 export VLLM_ATTENTION_BACKEND=FLASH_ATTN
 export VLLM_USE_V1=0
 export CUDA_VISIBLE_DEVICES=0,1,2,3
-export TMPDIR=/home/jovyan/ssd/yrc/tmp
-export FAST_DOWNWARD_TMPDIR=/home/jovyan/ssd/yrc/tmp/fast_downward_libs
+if [ -z "${STORAGE_ROOT:-}" ]; then
+    if [ -d /home/jovyan/ssd/yrc ]; then
+        export STORAGE_ROOT=/home/jovyan/ssd/yrc
+    else
+        export STORAGE_ROOT=/home/jovyan/nas/yrc
+    fi
+fi
+if [ -z "${TMPDIR:-}" ]; then
+    if [ "$STORAGE_ROOT" = "/home/jovyan/nas/yrc" ] && [ -d /home/jovyan/ssd/yrc ]; then
+        export TMPDIR=/home/jovyan/ssd/yrc/tmp
+    else
+        export TMPDIR=${STORAGE_ROOT}/tmp
+    fi
+fi
+export FAST_DOWNWARD_TMPDIR=${FAST_DOWNWARD_TMPDIR:-${TMPDIR}/fast_downward_libs}
 mkdir -p "$TMPDIR" "$FAST_DOWNWARD_TMPDIR"
 
 LOG_ROOT=outputs/train_logs/alfworld_ppo
@@ -32,8 +45,8 @@ python3 -m examples.data_preprocess.prepare \
     --train_data_size $train_data_size \
     --val_data_size $val_data_size
 
-MODEL_PATH=/home/jovyan/ssd/yrc/model/Qwen/Qwen2.5-1.5B-Instruct
-export ALFWORLD_DATA=/home/jovyan/ssd/yrc/dataset/alfworld/
+MODEL_PATH=${STORAGE_ROOT}/model/Qwen/Qwen2.5-1.5B-Instruct
+export ALFWORLD_DATA=${STORAGE_ROOT}/dataset/alfworld/
 
 gpu-dryrun down
 
@@ -66,7 +79,7 @@ python3 -m verl.trainer.main_ppo \
     actor_rollout_ref.rollout.log_prob_micro_batch_size_per_gpu=$ppo_micro_batch_size_per_gpu \
     actor_rollout_ref.rollout.tensor_model_parallel_size=1 \
     actor_rollout_ref.rollout.name=$ENGINE \
-    actor_rollout_ref.rollout.gpu_memory_utilization=0.25 \
+    actor_rollout_ref.rollout.gpu_memory_utilization=0.5 \
     actor_rollout_ref.rollout.enable_chunked_prefill=False \
     actor_rollout_ref.rollout.enforce_eager=False \
     actor_rollout_ref.rollout.free_cache_engine=False \

@@ -5,15 +5,25 @@ This file keeps only the final commands for reproducing the current working Cond
 ## Paths
 
 ```bash
-export WORKDIR=/home/jovyan/ssd/yrc/workspace/verl-agent
-export CONDA_ROOT=/home/jovyan/ssd/yrc/miniconda3
-export TMPDIR=/home/jovyan/ssd/yrc/tmp
-export PIP_CACHE_DIR=/home/jovyan/ssd/yrc/tmp/pip-cache
-export RAY_TMPDIR=/home/jovyan/ssd/yrc/ray
-export FAST_DOWNWARD_TMPDIR=/home/jovyan/ssd/yrc/tmp/fast_downward_libs
-export ALFWORLD_DATA=/home/jovyan/ssd/yrc/dataset/alfworld/
+if [ -d /home/jovyan/ssd/yrc ]; then
+  STORAGE_ROOT=/home/jovyan/ssd/yrc
+else
+  STORAGE_ROOT=/home/jovyan/nas/yrc
+fi
+# If both roots exist, set STORAGE_ROOT manually before continuing.
 
-mkdir -p "$TMPDIR" "$PIP_CACHE_DIR" "$RAY_TMPDIR" "$FAST_DOWNWARD_TMPDIR"
+WORKDIR="$STORAGE_ROOT/workspace/verl-agent"
+CONDA_ROOT="$STORAGE_ROOT/miniconda3"
+export TMPDIR="$STORAGE_ROOT/tmp"
+export PIP_CACHE_DIR="$STORAGE_ROOT/tmp/pip-cache"
+export XDG_CACHE_HOME="$STORAGE_ROOT/cache"
+export HF_HOME="$STORAGE_ROOT/cache/huggingface"
+export RAY_TMPDIR="$STORAGE_ROOT/ray"
+export FAST_DOWNWARD_TMPDIR="$STORAGE_ROOT/tmp/fast_downward_libs"
+ALFWORLD_DATA="$STORAGE_ROOT/dataset/alfworld/"
+MODEL_DIR="$STORAGE_ROOT/model/Qwen/Qwen2.5-1.5B-Instruct"
+
+mkdir -p "$TMPDIR" "$PIP_CACHE_DIR" "$XDG_CACHE_HOME" "$HF_HOME" "$RAY_TMPDIR" "$FAST_DOWNWARD_TMPDIR" "$ALFWORLD_DATA" "$MODEL_DIR"
 ```
 
 ## Create Conda Environment
@@ -46,8 +56,21 @@ python -m pip install \
   "ray[default]==2.43.0" \
   wandb==0.16.6 \
   google-api-core==2.19.2 \
-  opentelemetry-exporter-prometheus==0.47b0 \
-  flash-attn==2.7.4.post1
+  opentelemetry-exporter-prometheus==0.47b0
+```
+
+## Install FlashAttention
+
+Install `flash-attn` after PyTorch. If `nvcc` is not already available on the host, install the CUDA compiler into the Conda environment first.
+
+```bash
+python -m pip install ninja packaging
+
+if ! command -v nvcc >/dev/null 2>&1; then
+  conda install -c nvidia cuda-nvcc=12.4 cuda-cudart-dev=12.4 -y
+fi
+
+MAX_JOBS=8 python -m pip install flash-attn==2.7.4.post1 --no-build-isolation --no-cache-dir
 ```
 
 ## Install Current Project
@@ -57,20 +80,35 @@ cd "$WORKDIR"
 python -m pip install -e .
 ```
 
-## Runtime Environment
+## Install ALFWorld CLI
+
+`alfworld-download` is a console script installed by the `alfworld` Python package. Install ALFWorld before downloading the task data.
 
 ```bash
-export CUDA_VISIBLE_DEVICES=0,1,2,3
-export VLLM_ATTENTION_BACKEND=FLASH_ATTN
-export VLLM_USE_V1=0
-export TMPDIR=/home/jovyan/ssd/yrc/tmp
-export PIP_CACHE_DIR=/home/jovyan/ssd/yrc/tmp/pip-cache
-export RAY_TMPDIR=/home/jovyan/ssd/yrc/ray
-export FAST_DOWNWARD_TMPDIR=/home/jovyan/ssd/yrc/tmp/fast_downward_libs
-export ALFWORLD_DATA=/home/jovyan/ssd/yrc/dataset/alfworld/
+python -m pip install \
+  gymnasium==0.29.1 \
+  stable-baselines3==2.6.0 \
+  alfworld
 ```
 
-## Verify Installation
+## Download Assets
+
+Download ALFWorld PDDL files, game files, and the pre-trained MaskRCNN detector. `alfworld-download` is run with `XDG_CACHE_HOME` on the selected storage root; sync the downloaded files into `ALFWORLD_DATA` for the project.
+
+```bash
+mkdir -p "$ALFWORLD_DATA"
+alfworld-download -f
+rsync -a "$XDG_CACHE_HOME/alfworld/" "$ALFWORLD_DATA"/
+```
+
+Download the Qwen model checkpoint.
+
+```bash
+hf-download Qwen/Qwen2.5-1.5B-Instruct \
+  --local-dir "$MODEL_DIR"
+```
+
+## Key Component Checks
 
 ```bash
 python - <<'PY'
@@ -81,6 +119,8 @@ import transformers
 import vllm
 import xformers
 import tensordict
+import gymnasium
+import alfworld
 
 print("torch", torch.__version__, "cuda", torch.version.cuda)
 print("cuda_available", torch.cuda.is_available())
@@ -91,6 +131,8 @@ print("transformers", transformers.__version__)
 print("vllm", vllm.__version__)
 print("xformers", xformers.__version__)
 print("tensordict", tensordict.__version__)
+print("gymnasium", gymnasium.__version__)
+print("alfworld", md.version("alfworld"))
 print("flash_attn", md.version("flash_attn"))
 PY
 ```
@@ -113,41 +155,4 @@ python -m py_compile \
   verl/trainer/main_ppo.py \
   verl/workers/fsdp_workers.py \
   agent_system/environments/env_package/alfworld/envs.py
-```
-
-## Run ALFWorld PPO
-
-The current script uses:
-
-- Qwen model: `/home/jovyan/ssd/yrc/model/Qwen/Qwen2.5-1.5B-Instruct`
-- ALFWorld data: `/home/jovyan/ssd/yrc/dataset/alfworld/`
-- 4 GPUs: `CUDA_VISIBLE_DEVICES=0,1,2,3`
-- FlashAttention 2
-- vLLM V0
-- logs under `outputs/train_logs/alfworld_ppo/<timestamp>/`
-- checkpoints every 5 steps under `outputs/train_logs/alfworld_ppo/<timestamp>/checkpoints/`
-
-```bash
-cd "$WORKDIR"
-source "$CONDA_ROOT/etc/profile.d/conda.sh"
-conda activate verl-agent
-
-ray stop --force
-bash examples/ppo_trainer/run_alfworld.sh
-```
-
-## Short Smoke Test
-
-```bash
-cd "$WORKDIR"
-source "$CONDA_ROOT/etc/profile.d/conda.sh"
-conda activate verl-agent
-
-ray stop --force
-bash examples/ppo_trainer/run_alfworld.sh vllm \
-  trainer.total_epochs=1 \
-  trainer.total_training_steps=1 \
-  trainer.val_before_train=False \
-  trainer.test_freq=-1 \
-  env.max_steps=1
 ```
