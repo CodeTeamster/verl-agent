@@ -128,7 +128,8 @@ class TrajectoryCollector:
 
         else:
             raw_prompt = prompt_with_chat_template
-        
+
+        # 用于 verl/FSDP 的标准 batch、attention mask、position IDs
         input_ids, attention_mask = verl_F.tokenize_and_postprocess_data(prompt=prompt_with_chat_template,
                                                                             tokenizer=self.tokenizer,
                                                                             max_length=self.config.data.max_prompt_length,
@@ -158,6 +159,7 @@ class TrajectoryCollector:
         else:
             position_ids = compute_position_id_with_mask(attention_mask)
 
+        # 用于 vLLM generate 的 prompt_token_ids
         raw_prompt_ids = self.tokenizer.encode(raw_prompt, add_special_tokens=False)
         if len(raw_prompt_ids) > self.config.data.max_prompt_length:
             if self.config.data.truncation == "left":

@@ -24,6 +24,35 @@ import ray
 
 from agent_system.environments.env_package.alfworld.alfworld.agents.environment import get_environment
 
+
+def _patch_fast_downward_temp_cleanup():
+    """Avoid ALFWorld/TextWorld reset failures on NAS/NFS temp dirs.
+
+    fast_downward loads a copied shared library from TemporaryDirectory. On
+    network filesystems, unloading can leave .nfs* files briefly, making rmtree
+    raise Directory-not-empty even though the library loaded successfully.
+    """
+    try:
+        import fast_downward.interface as fast_downward_interface
+    except Exception:
+        return
+
+    temporary_directory = fast_downward_interface.tempfile.TemporaryDirectory
+    if getattr(temporary_directory, "_verl_agent_ignore_cleanup_errors", False):
+        return
+
+    class IgnoreCleanupErrorsTemporaryDirectory(temporary_directory):
+        _verl_agent_ignore_cleanup_errors = True
+
+        def __init__(self, *args, **kwargs):
+            kwargs.setdefault("ignore_cleanup_errors", True)
+            super().__init__(*args, **kwargs)
+
+    fast_downward_interface.tempfile.TemporaryDirectory = IgnoreCleanupErrorsTemporaryDirectory
+
+
+_patch_fast_downward_temp_cleanup()
+
 ALF_ACTION_LIST=["pass", "goto", "pick", "put", "open", "close", "toggle", "heat", "clean", "cool", "slice", "inventory", "examine", "look"]
 # ALF_ITEM_LIST =
 

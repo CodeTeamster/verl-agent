@@ -15,7 +15,9 @@
 Note that we don't combine the main with ray_trainer as ray_trainer is used by other main.
 """
 
+import errno
 import os
+import time
 
 import hydra
 import ray
@@ -51,9 +53,46 @@ def run_ppo(config) -> None:
     ray.get(runner.run.remote(config))
 
 
+def _patch_multiprocess_nfs_temp_cleanup() -> None:
+    """Avoid noisy finalizer tracebacks when NFS briefly keeps temp files busy."""
+    import multiprocessing.util as stdlib_multiprocessing_util
+
+    try:
+        import multiprocess.util as multiprocess_util
+    except ImportError:
+        multiprocess_util = None
+
+    def patch_cleanup(multiprocessing_util) -> None:
+        original_remove_temp_dir = multiprocessing_util._remove_temp_dir
+        if getattr(original_remove_temp_dir, "_verl_nfs_ebusy_patch", False):
+            return
+
+        def remove_temp_dir_with_nfs_retry(rmtree, tempdir):
+            for attempt in range(3):
+                try:
+                    return original_remove_temp_dir(rmtree, tempdir)
+                except OSError as exc:
+                    if exc.errno != errno.EBUSY:
+                        raise
+                    if attempt < 2:
+                        time.sleep(0.2)
+
+            current_process = multiprocessing_util.process.current_process()
+            if current_process is not None:
+                current_process._config["tempdir"] = None
+
+        remove_temp_dir_with_nfs_retry._verl_nfs_ebusy_patch = True
+        multiprocessing_util._remove_temp_dir = remove_temp_dir_with_nfs_retry
+
+    patch_cleanup(stdlib_multiprocessing_util)
+    if multiprocess_util is not None:
+        patch_cleanup(multiprocess_util)
+
+
 @ray.remote(num_cpus=1)  # please make sure main_task is not scheduled on head
 class TaskRunner:
     def run(self, config):
+        _patch_multiprocess_nfs_temp_cleanup()
         # print initial config
         from pprint import pprint
 

@@ -192,6 +192,9 @@ class AlfredTWEnv(object):
                 # Add to game file list
                 self.game_files.append(game_file_path)
 
+        # os.walk does not guarantee a stable traversal order across filesystems.
+        # Sort before TextWorld applies its seeded shuffle so evaluation is repeatable.
+        self.game_files.sort()
         print(f"Overall we have {len(self.game_files)} games in split={self.train_eval}")
         self.num_games = len(self.game_files)
 
