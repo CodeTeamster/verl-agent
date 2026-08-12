@@ -241,7 +241,7 @@ def compute_response_mask(data: DataProto):
     return attention_mask[:, -response_length:]
 
 
-def compute_advantage(data: DataProto, adv_estimator, gamma=1.0, lam=1.0, num_repeat=1, multi_turn=False, norm_adv_by_std_in_grpo=True, step_advantage_w=1.0, gigpo_mode="mean_std_norm", gigpo_enable_similarity=False, gigpo_similarity_thresh=0.95, **kwargs):
+def compute_advantage(data: DataProto, adv_estimator, gamma=1.0, lam=1.0, num_repeat=1, multi_turn=False, norm_adv_by_std_in_grpo=True, compute_mean_std_cross_steps=True, step_advantage_w=1.0, gigpo_mode="mean_std_norm", gigpo_enable_similarity=False, gigpo_similarity_thresh=0.95, **kwargs):
     """Compute advantage estimates for policy optimization.
 
     This function computes advantage estimates using various estimators like GAE, GRPO, REINFORCE++, etc.
@@ -255,6 +255,9 @@ def compute_advantage(data: DataProto, adv_estimator, gamma=1.0, lam=1.0, num_re
         num_repeat (int, optional): Number of times to repeat the computation. Defaults to 1.
         multi_turn (bool, optional): Whether the data is from a multi-turn conversation. Defaults to False.
         norm_adv_by_std_in_grpo (bool, optional): Whether to normalize advantages by standard deviation in GRPO. Defaults to True.
+        compute_mean_std_cross_steps (bool, optional): Whether GRPO group statistics
+            count every action step. Set False for trajectory-level GRPO, where
+            each trajectory contributes one outcome reward to its group.
 
     Returns:
         DataProto: The updated data with computed advantages and returns.
@@ -294,6 +297,7 @@ def compute_advantage(data: DataProto, adv_estimator, gamma=1.0, lam=1.0, num_re
             index=data.non_tensor_batch["uid"],
             traj_index=data.non_tensor_batch['traj_uid'],
             norm_adv_by_std_in_grpo=norm_adv_by_std_in_grpo,
+            compute_mean_std_cross_steps=compute_mean_std_cross_steps,
         )
         data.batch["advantages"] = advantages
         data.batch["returns"] = returns
@@ -1200,8 +1204,13 @@ class RayPPOTrainer:
                         if reward_extra_infos_dict:
                             batch.non_tensor_batch.update({k: np.array(v) for k, v in reward_extra_infos_dict.items()})
 
-                        # compute rewards. apply_invalid_action_penalty if available
-                        if self.config.actor_rollout_ref.actor.get('use_invalid_action_penalty', True):
+                        # Standard GRPO uses the raw environment outcome reward. The
+                        # agent-oriented variant additionally applies action shaping.
+                        standard_grpo = (
+                            self.config.algorithm.adv_estimator == AdvantageEstimator.GRPO
+                            and self.config.algorithm.get("standard_grpo", False)
+                        )
+                        if self.config.actor_rollout_ref.actor.get('use_invalid_action_penalty', True) and not standard_grpo:
                             batch, invalid_metrics = apply_invalid_action_penalty(batch,
                                                                                   invalid_action_penalty_coef=self.config.actor_rollout_ref.actor.invalid_action_penalty_coef,
                                                                                   )
@@ -1225,6 +1234,7 @@ class RayPPOTrainer:
                             lam=self.config.algorithm.lam,
                             num_repeat=self.config.actor_rollout_ref.rollout.n,
                             norm_adv_by_std_in_grpo=norm_adv_by_std_in_grpo,
+                            compute_mean_std_cross_steps=not standard_grpo,
                             multi_turn=self.config.actor_rollout_ref.rollout.multi_turn.enable,
                             use_pf_ppo=self.config.algorithm.use_pf_ppo,
                             pf_ppo_reweight_method=self.config.algorithm.pf_ppo.reweight_method,

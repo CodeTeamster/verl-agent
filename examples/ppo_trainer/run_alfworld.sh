@@ -178,6 +178,7 @@ python3 -m verl.trainer.main_ppo \
     trainer.max_critic_ckpt_to_keep=2 \
     trainer.total_epochs=150 \
     trainer.val_before_train=$trainer_val_before_train \
+    hydra.run.dir=${RUN_DIR}/hydra \
     trainer.val_only=$trainer_val_only "$@" || train_status=$?
 
 gpu_status=0
