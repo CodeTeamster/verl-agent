@@ -1,0 +1,38 @@
+# Installed by Quake before entrypoint.py on every allocated worker.
+# Match the known-good environment documented in ../setup.md. PyTorch is
+# supplied by the torch-2.6-cuda124 Quake image and is not reinstalled here.
+
+vllm==0.8.5.post1
+transformers==4.51.1
+xformers==0.0.29.post2
+tensordict==0.8.3
+tensorboard==2.16.2
+protobuf==3.20.3
+ray[default]==2.43.0
+wandb==0.16.6
+google-api-core==2.19.2
+click==8.4.2
+opentelemetry-exporter-prometheus==0.47b0
+ninja
+packaging>=20.0
+/jindofs_temp/users/533353/downloads/flash_attn-2.7.4.post1+cu12torch2.6cxx11abiFALSE-cp310-cp310-linux_x86_64.whl
+
+# Project runtime dependencies from setup.py.
+accelerate
+codetiming
+datasets
+dill
+hydra-core
+numpy
+pandas
+peft
+pyarrow>=19.0.0
+pybind11
+pylatexenc
+torchdata
+qwen-vl-utils[decord]
+
+# ALFWorld text environment.
+gymnasium==0.29.1
+stable-baselines3==2.6.0
+alfworld
