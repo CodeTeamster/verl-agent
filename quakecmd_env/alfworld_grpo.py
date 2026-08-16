@@ -50,7 +50,10 @@ def _wait_for_platform_ray(expected_gpus: int) -> None:
 
 def main() -> None:
     repo_root = Path(__file__).resolve().parents[1]
-    launcher = repo_root / "quakecmd_env" / "run_alfworld.sh"
+    runner_name = os.environ.get("ALFWORLD_RUNNER")
+    if runner_name not in {"run_alfworld.sh", "run_alfworld_ppu.sh"}:
+        raise RuntimeError("Set ALFWORLD_RUNNER through launch_alfworld_grpo.sh")
+    launcher = repo_root / "quakecmd_env" / runner_name
     if not (repo_root / "verl").is_dir() or not launcher.is_file():
         raise RuntimeError(f"Incomplete verl-agent checkout under {repo_root}")
 
