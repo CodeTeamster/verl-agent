@@ -2,12 +2,13 @@
 set -euo pipefail
 set -x
 
-unset RAY_ADDRESS
 ENGINE=${1:-vllm}
 if [ "$#" -gt 0 ]; then shift; fi
 export VLLM_ATTENTION_BACKEND=FLASH_ATTN
 export VLLM_USE_V1=0
 
+: "${TRAINER_NNODES:?Set TRAINER_NNODES in quakecmd --envs}"
+: "${GPU_PER_POD:?Set GPU_PER_POD in quakecmd --envs}"
 : "${STORAGE_ROOT:?Set STORAGE_ROOT in quakecmd --envs to your Jindo path}"
 : "${MODEL_PATH:?Set MODEL_PATH in quakecmd --envs to your model path}"
 if [ ! -d "$MODEL_PATH" ]; then
@@ -31,7 +32,6 @@ export ALFWORLD_DATA="${ALFWORLD_DATA}"
 export HF_HUB_OFFLINE=1
 export HF_DATASETS_OFFLINE=1
 export TRANSFORMERS_OFFLINE=1
-export TMPDIR="/tmp/verl-agent"
 
 TRAIN_DATA_SIZE=${TRAIN_DATA_SIZE:-16}
 VAL_DATA_SIZE=${VAL_DATA_SIZE:-32}
@@ -45,10 +45,23 @@ PLACEHOLDER="${PLACEHOLDER_DATA_PATH}/alfworld_grpo_train${TRAIN_DATA_SIZE}_val$
 TRAIN_PARQUET="${PLACEHOLDER}/text/train.parquet"
 VAL_PARQUET="${PLACEHOLDER}/text/test.parquet"
 MODEL_PATH="${MODEL_PATH}"
-mkdir -p "$TMPDIR" "$RUN_DIR" "$PLACEHOLDER" "${TMPDIR}/ray" "${TMPDIR}/fast_downward_libs"
+mkdir -p "$RUN_DIR" "$PLACEHOLDER"
 
 echo "======= CUDA preflight ======="
-echo "CPU_CORES=$(nproc)"
+python3 - <<'PY'
+import ray
+
+ray.init(address="auto", logging_level="ERROR")
+for node in ray.nodes():
+    if node["Alive"]:
+        resources = node["Resources"]
+        print(
+            f"RAY_NODE={node['NodeManagerAddress']} "
+            f"CPU={resources.get('CPU', 0):g} "
+            f"GPU={resources.get('GPU', 0):g}"
+        )
+ray.shutdown()
+PY
 awk '/MemTotal/ {printf "MEMORY_TOTAL_GIB=%.2f\n", $2 / 1024 / 1024}' /proc/meminfo
 if ! command -v nvidia-smi >/dev/null 2>&1; then
     echo "ERROR: nvidia-smi is unavailable; the NVIDIA driver is not mounted in this container." >&2
@@ -113,10 +126,10 @@ python3 -m verl.trainer.main_ppo \
     actor_rollout_ref.rollout.gpu_memory_utilization=0.5 \
     actor_rollout_ref.rollout.enable_chunked_prefill=False \
     actor_rollout_ref.rollout.enforce_eager=${ENFORCE_EAGER} \
+    actor_rollout_ref.rollout.free_cache_engine=False \
     actor_rollout_ref.ref.log_prob_micro_batch_size_per_gpu=${MICRO_BATCH_SIZE} \
     ray_init.include_dashboard=False \
-    +ray_init._temp_dir="${TMPDIR}/ray" \
-    +ray_init.address=local \
+    +ray_init.address=auto \
     env.env_name=alfworld/AlfredTWEnv \
     env.seed=0 \
     env.max_steps=50 \
@@ -127,8 +140,8 @@ python3 -m verl.trainer.main_ppo \
     trainer.project_name=verl_agent_alfworld \
     trainer.experiment_name=grpo_qwen2.5_1.5b \
     trainer.default_local_dir="${RUN_DIR}/ckpts" \
-    trainer.n_gpus_per_node=1 \
-    trainer.nnodes=1 \
+    trainer.n_gpus_per_node=${GPU_PER_POD} \
+    trainer.nnodes=${TRAINER_NNODES} \
     trainer.save_freq=25 \
     trainer.test_freq=25 \
     trainer.max_actor_ckpt_to_keep=2 \

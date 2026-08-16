@@ -7,11 +7,12 @@ import importlib.util
 import os
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 
 def _rank() -> int:
-    """Return the launcher rank, accepting the names used by Quake launchers."""
+    """Return the launcher rank."""
     for name in ("RANK", "NODE_RANK", "LOCAL_RANK"):
         value = os.environ.get(name)
         if value is not None:
@@ -19,37 +20,63 @@ def _rank() -> int:
     return 0
 
 
-def main() -> None:
-    # veRL creates and owns its Ray cluster. Exactly one launcher process must
-    # therefore become its driver.
-    if _rank() != 0:
-        print(f"Skip ALFWorld Ray driver on launcher rank {_rank()}.", flush=True)
-        return
+def _wait_for_platform_ray(expected_gpus: int) -> None:
+    """Wait for the platform Ray cluster."""
+    import ray
 
+    timeout_s = int(os.environ.get("RAY_CLUSTER_WAIT_S", "300"))
+    deadline = time.monotonic() + timeout_s
+    last_error = ""
+    while time.monotonic() < deadline:
+        initialized = False
+        try:
+            ray.init(address="auto")
+            initialized = True
+            resources = ray.cluster_resources()
+            if resources.get("GPU", 0) >= expected_gpus:
+                return
+        except Exception as exc:
+            last_error = repr(exc)
+        finally:
+            if initialized:
+                ray.shutdown()
+        time.sleep(2)
+
+    raise RuntimeError(
+        f"Timed out waiting for a platform Ray cluster with {expected_gpus} GPU(s) "
+        f"after {timeout_s}s. Last Ray error: {last_error}"
+    )
+
+
+def main() -> None:
     repo_root = Path(__file__).resolve().parents[1]
     launcher = repo_root / "quakecmd_env" / "run_alfworld.sh"
     if not (repo_root / "verl").is_dir() or not launcher.is_file():
         raise RuntimeError(f"Incomplete verl-agent checkout under {repo_root}")
 
+    # Prepare the repository checkout.
     os.chdir(repo_root)
     os.environ["PYTHONPATH"] = f"{repo_root}:{os.environ.get('PYTHONPATH', '')}"
-    # Requirements are installed by Quake before the entry starts.  Install
-    # this checkout only after its actual root is known; using -e from the
-    # requirements file is unreliable because Quake may use another CWD.
+    # Install this checkout from its repository root.
     subprocess.run(
         [sys.executable, "-m", "pip", "install", "--no-deps", "-e", str(repo_root)],
         check=True,
     )
-    # The base image includes DeepSpeed, but this FSDP + vLLM training path
-    # does not use it. Transformers imports an installed DeepSpeed eagerly;
-    # that import initializes Triton in the CPU-only Ray TaskRunner, where Ray
-    # intentionally hides CUDA_VISIBLE_DEVICES, and fails before workers start.
+    # DeepSpeed is not used by this FSDP + vLLM path.
     if importlib.util.find_spec("deepspeed") is not None:
         print("Removing unused base-image deepspeed to keep CPU Ray actors CUDA-independent.", flush=True)
         subprocess.run(
             [sys.executable, "-m", "pip", "uninstall", "-y", "deepspeed"],
             check=True,
         )
+
+    # Only rank 0 runs the veRL driver.
+    if _rank() != 0:
+        return
+
+    expected_gpus = int(os.environ["GPU_PER_POD"]) * int(os.environ["TRAINER_NNODES"])
+    _wait_for_platform_ray(expected_gpus)
+
     # Quake's training_start_params become Hydra overrides after the engine.
     raise SystemExit(subprocess.call(["bash", str(launcher), "vllm", *sys.argv[1:]]))
 

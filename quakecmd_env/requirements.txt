@@ -1,6 +1,4 @@
-# Installed by Quake before entrypoint.py on every allocated worker.
-# Match the known-good environment documented in ../setup.md. PyTorch is
-# supplied by the torch-2.6-cuda124 Quake image and is not reinstalled here.
+# PyTorch is supplied by the torch-2.6-cuda124 Quake image and is not reinstalled here.
 
 vllm==0.8.5.post1
 transformers==4.51.1
@@ -8,10 +6,12 @@ xformers==0.0.29.post2
 tensordict==0.8.3
 tensorboard==2.16.2
 protobuf==3.20.3
-ray[default]==2.43.0
+ray[default]==2.46.0
 wandb==0.16.6
 google-api-core==2.19.2
-click==8.4.2
+click==8.1.7
+opentelemetry-api==1.26.0
+opentelemetry-sdk==1.26.0
 opentelemetry-exporter-prometheus==0.47b0
 ninja
 packaging>=20.0
