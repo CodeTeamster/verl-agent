@@ -15,16 +15,19 @@ fi
 WORKDIR="$STORAGE_ROOT/workspace/verl-agent"
 CONDA_ROOT="$STORAGE_ROOT/miniconda3"
 export TMPDIR="$STORAGE_ROOT/tmp"
-export PIP_CACHE_DIR="$STORAGE_ROOT/tmp/pip-cache"
+export PIP_CACHE_DIR="$STORAGE_ROOT/pip-cache"
 export XDG_CACHE_HOME="$STORAGE_ROOT/cache"
 export HF_HOME="$STORAGE_ROOT/cache/huggingface"
 export RAY_TMPDIR="$TMPDIR/ray"
-export FAST_DOWNWARD_TMPDIR="$STORAGE_ROOT/tmp/fast_downward_libs"
 ALFWORLD_DATA="$STORAGE_ROOT/dataset/alfworld/"
 MODEL_DIR="$STORAGE_ROOT/model/Qwen/Qwen2.5-1.5B-Instruct"
 
-mkdir -p "$TMPDIR" "$PIP_CACHE_DIR" "$XDG_CACHE_HOME" "$HF_HOME" "$RAY_TMPDIR" "$FAST_DOWNWARD_TMPDIR" "$ALFWORLD_DATA" "$MODEL_DIR"
+mkdir -p "$TMPDIR" "$PIP_CACHE_DIR" "$XDG_CACHE_HOME" "$HF_HOME" "$RAY_TMPDIR" "$ALFWORLD_DATA" "$MODEL_DIR"
 ```
+
+The ALFWorld launch scripts create a per-run `FAST_DOWNWARD_TMPDIR` under
+`/dev/shm`; do not redirect it to the NFS-backed workspace. Fast Downward
+loads temporary shared libraries, and NFS can retain `.nfs*` files at exit.
 
 ## Create Conda Environment
 
@@ -44,21 +47,6 @@ python -m pip install \
   --index-url https://download.pytorch.org/whl/cu124
 ```
 
-## Install Runtime Dependencies
-
-```bash
-python -m pip install \
-  vllm==0.8.5.post1 \
-  transformers==4.51.1 \
-  xformers==0.0.29.post2 \
-  tensordict==0.8.3 \
-  tensorboard==2.16.2 \
-  "ray[default]==2.43.0" \
-  wandb==0.16.6 \
-  google-api-core==2.19.2 \
-  opentelemetry-exporter-prometheus==0.47b0
-```
-
 ## Install FlashAttention
 
 Install `flash-attn` after PyTorch. If `nvcc` is not already available on the host, install the CUDA compiler into the Conda environment first.
@@ -73,23 +61,24 @@ fi
 MAX_JOBS=8 python -m pip install flash-attn==2.7.4.post1 --no-build-isolation --no-cache-dir
 ```
 
-## Install Current Project
+`flash-attn` must be built for the active Python and PyTorch ABI. Do not use
+the Quakecmd CPython 3.10 wheel in this Python 3.12 environment.
+
+## Install Pinned Runtime Dependencies and Current Project
 
 ```bash
 cd "$WORKDIR"
-python -m pip install -e .
+python -m pip install -r requirements.txt
+python -m pip install -e . --no-deps
 ```
 
-## Install ALFWorld CLI
+`requirements.txt` pins the verified runtime stack, including Ray 2.46.0,
+vLLM 0.8.5.post1, TensorDict 0.8.3, ALFWorld, Gymnasium, and Stable-Baselines3.
+`--no-deps` prevents the editable install from re-resolving those pinned
+dependencies.
 
-`alfworld-download` is a console script installed by the `alfworld` Python package. Install ALFWorld before downloading the task data.
-
-```bash
-python -m pip install \
-  gymnasium==0.29.1 \
-  stable-baselines3==2.6.0 \
-  alfworld
-```
+`alfworld-download` is installed by the `alfworld` package in
+`requirements.txt`.
 
 ## Download Assets
 
