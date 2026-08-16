@@ -35,11 +35,16 @@ RUN_TMPDIR=$(mktemp -d "${TMP_ROOT%/}/verl-agent-alfworld-${RUN_ID}-XXXXXX") || 
 export TMPDIR=$RUN_TMPDIR
 # Ray uses Unix sockets, whose paths must stay within the 107-byte limit.
 export RAY_TMPDIR=${RAY_TMPDIR:-${TMP_ROOT}/ray}
-export FAST_DOWNWARD_TMPDIR=${FAST_DOWNWARD_TMPDIR:-${TMPDIR}/fast_downward_libs}
+# Fast Downward loads temporary shared libraries. Keep them on local tmpfs so
+# NFS cannot leave .nfs* files that prevent RUN_TMPDIR cleanup at shutdown.
+export FAST_DOWNWARD_TMPDIR=/dev/shm/verl-agent-fast-downward-${RUN_ID}
 mkdir -p "$RAY_TMPDIR" "$FAST_DOWNWARD_TMPDIR"
 cleanup_run_tmpdir() {
     local exit_status=$?
     trap - EXIT
+    if [ -d "$FAST_DOWNWARD_TMPDIR" ]; then
+        rm -rf -- "$FAST_DOWNWARD_TMPDIR" || echo "Warning: failed to clean ${FAST_DOWNWARD_TMPDIR}" >&2
+    fi
     if [ -d "$RUN_TMPDIR" ]; then
         rm -rf -- "$RUN_TMPDIR" || echo "Warning: failed to clean ${RUN_TMPDIR}" >&2
     fi
