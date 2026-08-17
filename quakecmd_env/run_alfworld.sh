@@ -47,7 +47,7 @@ VAL_PARQUET="${PLACEHOLDER}/text/test.parquet"
 MODEL_PATH="${MODEL_PATH}"
 mkdir -p "$RUN_DIR" "$PLACEHOLDER"
 
-echo "================== CUDA preflight "==================
+echo "================== Train preflight "==================
 python3 - <<'PY'
 import ray
 
@@ -58,7 +58,7 @@ for node in ray.nodes():
         print(
             f"RAY_NODE={node['NodeManagerAddress']}\n"
             f"CPU={resources.get('CPU', 0):g} "
-            f"GPU={resources.get('GPU', 0):g}\n"
+            f"GPU={resources.get('GPU', 0):g}"
         )
 ray.shutdown()
 PY
@@ -67,6 +67,12 @@ if ! command -v nvidia-smi >/dev/null 2>&1; then
     echo "ERROR: nvidia-smi is unavailable; the NVIDIA driver is not mounted in this container." >&2
     exit 2
 fi
+echo "TRAIN_DATA_SIZE=${TRAIN_DATA_SIZE}"
+echo "VAL_DATA_SIZE=${VAL_DATA_SIZE}"
+echo "GRPO_GROUP_SIZE=${GRPO_GROUP_SIZE}"
+echo "MICRO_BATCH_SIZE=${MICRO_BATCH_SIZE}"
+echo "ENVS_PER_WORKER=${ENVS_PER_WORKER}"
+echo "ENV_CPU=${ENV_CPU}"
 nvidia-smi
 
 # 1. Prepare placeholder parquet
