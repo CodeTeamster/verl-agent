@@ -77,6 +77,35 @@ logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
 device_name = get_device_name()
 
 
+def _disable_vllm_progress_bars_on_nonzero_global_rank():
+    """Keep vLLM progress bars on global rank 0 only.
+
+    vLLM normally filters CUDA graph capture progress by tensor-parallel rank.
+    When tensor_model_parallel_size is 1, every data-parallel worker has TP
+    rank 0 and therefore every worker prints the same progress bar.
+    """
+    if int(os.environ.get("RANK", "0")) == 0:
+        return
+
+    try:
+        import vllm.worker.model_runner as vllm_model_runner
+
+        original_tqdm = vllm_model_runner.tqdm
+        if getattr(original_tqdm, "_verl_global_rank_filtered", False):
+            return
+
+        def rank_filtered_tqdm(*args, **kwargs):
+            kwargs["disable"] = True
+            return original_tqdm(*args, **kwargs)
+
+        rank_filtered_tqdm._verl_global_rank_filtered = True
+        vllm_model_runner.tqdm = rank_filtered_tqdm
+    except (ImportError, AttributeError):
+        # Keep compatibility with vLLM versions whose model runner does not
+        # expose tqdm. Logging must never prevent rollout initialization.
+        return
+
+
 def create_device_mesh(world_size, fsdp_size):
     if fsdp_size < 0 or fsdp_size >= world_size:
         device_mesh = init_device_mesh(device_name, mesh_shape=(world_size,), mesh_dim_names=["fsdp"])
@@ -271,7 +300,8 @@ class ActorRolloutRefWorker(Worker):
             if enable_gradient_checkpointing:
                 actor_module.gradient_checkpointing_enable(gradient_checkpointing_kwargs={"use_reentrant": False})
             if self._is_lora:
-                print("Applying LoRA to actor module")
+                if self.rank == 0:
+                    print("Applying LoRA to actor module")
                 actor_module.enable_input_require_grads()
                 # Convert config to regular Python types before creating PEFT model
                 lora_config = {
@@ -308,7 +338,8 @@ class ActorRolloutRefWorker(Worker):
             # TODO(zhangchi.usc1992, shengguangming) fix me. Current, auto_wrap_policy causes HFRollout to hang in Gemma
             auto_wrap_policy = None
 
-        print(f"wrap_policy: {auto_wrap_policy}")
+        if self.rank == 0:
+            print(f"wrap_policy: {auto_wrap_policy}")
 
         fsdp_mesh = self.device_mesh
         sharding_strategy = get_sharding_strategy(fsdp_mesh)
@@ -380,7 +411,8 @@ class ActorRolloutRefWorker(Worker):
                 num_warmup_steps_ratio = optim_config.get("lr_warmup_steps_ratio", 0.0)
                 num_warmup_steps = int(num_warmup_steps_ratio * total_steps)
 
-            print(f"Total steps: {total_steps}, num_warmup_steps: {num_warmup_steps}")
+            if self.rank == 0:
+                print(f"Total steps: {total_steps}, num_warmup_steps: {num_warmup_steps}")
 
             if warmup_style == "constant":
                 actor_lr_scheduler = get_constant_schedule_with_warmup(optimizer=actor_optimizer, num_warmup_steps=num_warmup_steps)
@@ -417,6 +449,7 @@ class ActorRolloutRefWorker(Worker):
             from verl.workers.rollout.vllm_rollout import vllm_mode, vLLMRollout
             from verl.workers.sharding_manager.fsdp_vllm import FSDPVLLMShardingManager
 
+            _disable_vllm_progress_bars_on_nonzero_global_rank()
             log_gpu_memory_usage(f"Before building {rollout_name} rollout", logger=logger)
             local_path = copy_to_local(self.config.model.path, use_shm=self.config.model.get('use_shm', False))
             lora_kwargs = {'lora_kwargs': {"enable_lora":True, "max_loras":1, "max_lora_rank":self._lora_rank}} if self._is_lora else {}
@@ -914,7 +947,8 @@ class CriticWorker(Worker):
                 critic_module.gradient_checkpointing_enable(gradient_checkpointing_kwargs={"use_reentrant": False})
         
         if self._is_lora:
-            print("Applying LoRA to critic module")
+            if self.rank == 0:
+                print("Applying LoRA to critic module")
             critic_module.enable_input_require_grads()
             # Convert config to regular Python types before creating PEFT model
             lora_config = {
@@ -1007,7 +1041,8 @@ class CriticWorker(Worker):
             num_warmup_steps_ratio = config.optim.get("lr_warmup_steps_ratio", 0.0)
             num_warmup_steps = int(num_warmup_steps_ratio * total_steps)
 
-        print(f"Total steps: {total_steps}, num_warmup_steps: {num_warmup_steps}")
+        if self.rank == 0:
+            print(f"Total steps: {total_steps}, num_warmup_steps: {num_warmup_steps}")
 
         from verl.utils.torch_functional import get_constant_schedule_with_warmup, get_cosine_schedule_with_warmup
 

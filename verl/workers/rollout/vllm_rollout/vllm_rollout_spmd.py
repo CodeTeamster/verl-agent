@@ -112,8 +112,6 @@ class vLLMRollout(BaseRollout):
 
         if kwargs.get("train_tp") is not None:
             # deployed with megatron
-            import os
-
             os.environ["CUDA_TIMER_STREAM_KAFKA_ENABLE"] = "0"
             os.environ["MEGATRON_IMPORT_TIMERS"] = "0"
             if vllm_version in (
@@ -223,7 +221,8 @@ class vLLMRollout(BaseRollout):
             if hasattr(SamplingParams(), str(k)):
                 kwargs[k] = config.get(k)
 
-        print(f"kwargs: {kwargs}")
+        if int(os.environ.get("RANK", "0")) == 0:
+            print(f"kwargs: {kwargs}")
         self.sampling_params = SamplingParams(**kwargs)
 
         self.pad_token_id = tokenizer.pad_token_id

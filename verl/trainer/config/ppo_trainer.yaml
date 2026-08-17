@@ -5,6 +5,7 @@ data:
   val_files: ~/data/rlhf/gsm8k/test.parquet
   prompt_key: prompt
   reward_fn_key: data_source
+  dataloader_num_workers: 0
   max_prompt_length: 512
   max_response_length: 512
   train_batch_size: 1024
@@ -265,6 +266,9 @@ algorithm:
 
 trainer:
   balance_batch: True
+  # Emit concise phase markers from the single TaskRunner process. This makes
+  # long rollout/log-prob/update phases observable without per-rank logs.
+  log_training_progress: True
   total_epochs: 30
   total_training_steps: null
   project_name: verl_examples
@@ -301,13 +305,15 @@ env:
   seed: 0
   max_steps: 50
   history_length: 2
-  resources_per_worker: # resources for each env worker
+  resources_per_worker: # Resources per environment slot; packed actors scale these values by their slot count.
     num_cpus: 0.1
     num_gpus: 0
   rollout:
     n: 1 # the group number of envs (for GRPO and GiGPO).
   alfworld:
     eval_dataset: eval_in_distribution
+    # Number of independent ALFWorld environments hosted by each Ray actor.
+    envs_per_worker: 4
   search:
     log_requests: false
     search_url: "http://127.0.0.1:8000/retrieve" # also support multiple urls: ["http://127.0.0.1:8000/retrieve", "http://127.0.0.1:8001/retrieve"]

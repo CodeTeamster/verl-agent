@@ -37,6 +37,7 @@ TRAIN_DATA_SIZE=${TRAIN_DATA_SIZE:-16}
 VAL_DATA_SIZE=${VAL_DATA_SIZE:-32}
 GRPO_GROUP_SIZE=${GRPO_GROUP_SIZE:-8}
 MICRO_BATCH_SIZE=${MICRO_BATCH_SIZE:-4}
+ENVS_PER_WORKER=${ENVS_PER_WORKER:-4}
 ENV_CPU=${ENV_CPU:-0.05}
 ENFORCE_EAGER=${ENFORCE_EAGER:-false}
 
@@ -135,6 +136,7 @@ python3 -m verl.trainer.main_ppo \
     env.max_steps=50 \
     env.rollout.n=${GRPO_GROUP_SIZE} \
     env.resources_per_worker.num_cpus=${ENV_CPU} \
+    env.alfworld.envs_per_worker=${ENVS_PER_WORKER} \
     trainer.critic_warmup=0 \
     trainer.logger="['console','tensorboard']" \
     trainer.project_name=verl_agent_alfworld \

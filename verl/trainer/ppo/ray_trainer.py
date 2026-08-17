@@ -1034,10 +1034,14 @@ class RayPPOTrainer:
         # perform validation before training
         # currently, we only support validation using the reward_function.
         if self.val_reward_fn is not None and self.config.trainer.get("val_before_train", True):
+            if self.config.trainer.get("log_training_progress", True):
+                print(f"[Training Progress] step=0/{self.total_training_steps} stage=initial_validation", flush=True)
             val_metrics = self._validate()
             assert val_metrics, f"{val_metrics=}"
             pprint(f"Initial validation metrics: {val_metrics}")
             logger.log(data=val_metrics, step=self.global_steps)
+            if self.config.trainer.get("log_training_progress", True):
+                print(f"[Training Progress] step=0/{self.total_training_steps} stage=initial_validation_complete", flush=True)
             if self.config.trainer.get("val_only", False):
                 return
 
@@ -1049,10 +1053,19 @@ class RayPPOTrainer:
         last_val_metrics = None
 
         for epoch in range(self.config.trainer.total_epochs):
-            for batch_dict in self.train_dataloader:
+            for batch_index, batch_dict in enumerate(self.train_dataloader, start=1):
                 metrics = {}
                 timing_raw = {}
                 batch: DataProto = DataProto.from_single_dict(batch_dict)
+
+                def log_training_stage(stage):
+                    if self.config.trainer.get("log_training_progress", True):
+                        print(
+                            f"[Training Progress] step={self.global_steps}/{self.total_training_steps} "
+                            f"epoch={epoch + 1}/{self.config.trainer.total_epochs} "
+                            f"batch={batch_index}/{len(self.train_dataloader)} stage={stage}",
+                            flush=True,
+                        )
 
                 # pop those keys for generation
                 batch_keys_to_pop = ["input_ids", "attention_mask", "position_ids"]
@@ -1074,6 +1087,7 @@ class RayPPOTrainer:
 
                 with _timer("step", timing_raw):
                     # generate a batch
+                    log_training_stage("rollout")
                     with _timer("gen", timing_raw):
                         # if not self.async_rollout_mode:
                         #     gen_batch_output = self.actor_rollout_wg.generate_sequences(gen_batch)
@@ -1143,6 +1157,7 @@ class RayPPOTrainer:
                             reward_tensor, reward_extra_infos_dict = compute_reward(batch, self.reward_fn)
 
                     # recompute old_log_probs
+                    log_training_stage("old_log_prob")
                     with _timer("old_log_prob", timing_raw):
                         old_log_prob = self.actor_rollout_wg.compute_log_prob(batch)
                         entropys = old_log_prob.batch["entropys"]
@@ -1247,6 +1262,7 @@ class RayPPOTrainer:
 
                     # update critic
                     if self.use_critic:
+                        log_training_stage("update_critic")
                         with _timer("update_critic", timing_raw):
                             critic_output = self.critic_wg.update_critic(batch)
                         critic_output_metrics = reduce_metrics(critic_output.meta_info["metrics"])
@@ -1255,6 +1271,7 @@ class RayPPOTrainer:
                     # implement critic warmup
                     if self.config.trainer.critic_warmup <= self.global_steps:
                         # update actor
+                        log_training_stage("update_actor")
                         with _timer("update_actor", timing_raw):
                             batch.meta_info["multi_turn"] = self.config.actor_rollout_ref.rollout.multi_turn.enable
                             actor_output = self.actor_rollout_wg.update_actor(batch)
@@ -1279,6 +1296,7 @@ class RayPPOTrainer:
 
                     # validate
                     if self.val_reward_fn is not None and self.config.trainer.test_freq > 0 and (is_last_step or self.global_steps % self.config.trainer.test_freq == 0):
+                        log_training_stage("validation")
                         with _timer("testing", timing_raw):
                             val_metrics: dict = self._validate()
                             if is_last_step:
@@ -1286,6 +1304,7 @@ class RayPPOTrainer:
                         metrics.update(val_metrics)
 
                     if self.config.trainer.save_freq > 0 and (is_last_step or self.global_steps % self.config.trainer.save_freq == 0):
+                        log_training_stage("save_checkpoint")
                         with _timer("save_checkpoint", timing_raw):
                             self._save_checkpoint()
 
@@ -1306,6 +1325,7 @@ class RayPPOTrainer:
                 # TODO: make a canonical logger that supports various backend
                 logger.log(data=metrics, step=self.global_steps)
 
+                log_training_stage("complete")
                 progress_bar.update(1)
                 self.global_steps += 1
                 if is_last_step:
