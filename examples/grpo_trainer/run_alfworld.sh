@@ -71,8 +71,8 @@ num_cpus_per_env_worker=0.1
 train_data_size=16
 val_data_size=32
 group_size=8
-ppo_micro_batch_size_per_gpu=4
-envs_per_worker=8
+ppo_micro_batch_size_per_gpu=8 # A6000 x 4
+envs_per_worker=4 # A6000 x 4
 # True: trajectory-level standard GRPO with raw environment rewards. False:
 # agent-oriented GRPO with cross-step statistics and invalid-action shaping.
 standard_grpo=${STANDARD_GRPO:-False}
