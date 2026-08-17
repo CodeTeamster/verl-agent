@@ -8,7 +8,6 @@ tensorboard==2.16.2
 protobuf==3.20.3
 ray[default]==2.46.0
 wandb==0.16.6
-google-api-core==2.19.2
 click==8.1.7
 opentelemetry-api==1.26.0
 opentelemetry-sdk==1.26.0

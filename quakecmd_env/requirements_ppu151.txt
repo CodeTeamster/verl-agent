@@ -1,13 +1,13 @@
 # PPU 1.5.1 training image supplies Python 3.12, PyTorch 2.6 and vLLM 0.8.5+ppu1.5.1.oe.
 # Do not replace the image-provided PPU vLLM or install external accelerator wheels.
 
+setuptools>=74.1.1
 transformers==4.51.1
 tensordict==0.8.3
 tensorboard==2.16.2
 protobuf==3.20.3
 ray[default]==2.46.0
 wandb==0.16.6
-google-api-core==2.19.2
 click==8.1.7
 opentelemetry-api==1.26.0
 opentelemetry-sdk==1.26.0

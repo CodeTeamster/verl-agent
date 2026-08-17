@@ -1,11 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
-set -x
 
 ENGINE=${1:-vllm}
 if [ "$#" -gt 0 ]; then shift; fi
-export VLLM_ATTENTION_BACKEND=FLASH_ATTN
-export VLLM_USE_V1=0
 
 : "${TRAINER_NNODES:?Set TRAINER_NNODES in quakecmd --envs}"
 : "${GPU_PER_POD:?Set GPU_PER_POD in quakecmd --envs}"
@@ -28,6 +25,8 @@ if [ ! -d "$GEOMETRY3K_DATA" ]; then
     exit 2
 fi
 
+export VLLM_ATTENTION_BACKEND=FLASH_ATTN
+export VLLM_USE_V1=0
 export ALFWORLD_DATA="${ALFWORLD_DATA}"
 export HF_HUB_OFFLINE=1
 export HF_DATASETS_OFFLINE=1
@@ -48,7 +47,7 @@ VAL_PARQUET="${PLACEHOLDER}/text/test.parquet"
 MODEL_PATH="${MODEL_PATH}"
 mkdir -p "$RUN_DIR" "$PLACEHOLDER"
 
-echo "======= CUDA preflight ======="
+echo "================== CUDA preflight "==================
 python3 - <<'PY'
 import ray
 
@@ -57,31 +56,18 @@ for node in ray.nodes():
     if node["Alive"]:
         resources = node["Resources"]
         print(
-            f"RAY_NODE={node['NodeManagerAddress']} "
+            f"RAY_NODE={node['NodeManagerAddress']}\n"
             f"CPU={resources.get('CPU', 0):g} "
-            f"GPU={resources.get('GPU', 0):g}"
+            f"GPU={resources.get('GPU', 0):g}\n"
         )
 ray.shutdown()
 PY
-awk '/MemTotal/ {printf "MEMORY_TOTAL_GIB=%.2f\n", $2 / 1024 / 1024}' /proc/meminfo
+awk '/MemTotal/ {printf "MEMORY_GIB=%.2f\n", $2 / 1024 / 1024}' /proc/meminfo
 if ! command -v nvidia-smi >/dev/null 2>&1; then
     echo "ERROR: nvidia-smi is unavailable; the NVIDIA driver is not mounted in this container." >&2
     exit 2
 fi
 nvidia-smi
-python3 - <<'PY'
-import os
-import torch
-import transformers
-
-print(f"torch={torch.__version__}")
-print(f"torch.version.cuda={torch.version.cuda}")
-print(f"torch.cuda.is_available={torch.cuda.is_available()}")
-print(f"torch.cuda.device_count={torch.cuda.device_count()}")
-if not torch.cuda.is_available() or torch.cuda.device_count() == 0:
-    raise SystemExit("ERROR: PyTorch cannot access a CUDA device in this container.")
-print(f"transformers={transformers.__version__}")
-PY
 
 # 1. Prepare placeholder parquet
 if [ ! -f "$TRAIN_PARQUET" ] || [ ! -f "$VAL_PARQUET" ]; then
