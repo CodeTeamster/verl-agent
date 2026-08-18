@@ -142,6 +142,7 @@ python3 -m verl.trainer.main_ppo \
     trainer.save_freq=5 \
     trainer.test_freq=5 \
     trainer.max_actor_ckpt_to_keep=2 \
+    trainer.keep_best_actor_ckpt=True \
     trainer.total_epochs=150 \
     trainer.val_before_train=True \
     hydra.run.dir="${RUN_DIR}/hydra" \

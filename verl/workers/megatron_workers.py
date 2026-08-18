@@ -528,13 +528,24 @@ class ActorRolloutRefWorker(MegatronWorker):
         pass
 
     @register(dispatch_mode=Dispatch.ONE_TO_ALL)
-    def save_checkpoint(self, checkpoint_path, hdfs_path=None, global_step=0, max_ckpt_to_keep=None):
+    def save_checkpoint(self, checkpoint_path, hdfs_path=None, global_step=0, max_ckpt_to_keep=None, protected_paths=None):
         if self._is_offload_param:
             load_megatron_model_to_gpu(self.actor_module)
-        self.checkpoint_mananager.save_checkpoint(local_path=checkpoint_path, hdfs_path=hdfs_path, global_step=global_step, max_ckpt_to_keep=max_ckpt_to_keep)
+        self.checkpoint_mananager.save_checkpoint(
+            local_path=checkpoint_path,
+            hdfs_path=hdfs_path,
+            global_step=global_step,
+            max_ckpt_to_keep=max_ckpt_to_keep,
+            protected_paths=protected_paths,
+        )
         torch.distributed.barrier()
         if self._is_offload_param:
             offload_megatron_model_to_cpu(self.actor_module)
+
+    @register(dispatch_mode=Dispatch.ONE_TO_ALL)
+    def prune_checkpoints(self, max_ckpt_to_keep=None, protected_paths=None):
+        self.checkpoint_mananager.prune_checkpoints(max_ckpt_to_keep=max_ckpt_to_keep, protected_paths=protected_paths)
+        torch.distributed.barrier()
 
 
 class CriticWorker(MegatronWorker):

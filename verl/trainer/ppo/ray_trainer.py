@@ -19,6 +19,7 @@ This trainer supports model-agonistic model initialization with huggingface
 """
 
 import json
+import math
 import os
 import uuid
 from collections import defaultdict
@@ -437,6 +438,7 @@ class RayPPOTrainer:
         self.ray_worker_group_cls = ray_worker_group_cls
         self.device_name = device_name
         self.validation_generations_logger = ValidationGenerationsLogger()
+        self._best_actor_checkpoint = self._load_best_actor_checkpoint()
 
         # if ref_in_actor is True, the reference policy will be actor without lora applied
         self.ref_in_actor = config.actor_rollout_ref.model.get('lora_rank', 0) > 0
@@ -912,7 +914,54 @@ class RayPPOTrainer:
                 worker_group=self.actor_rollout_wg,
             )
 
-    def _save_checkpoint(self):
+    def _best_actor_checkpoint_metadata_path(self):
+        return os.path.abspath(os.path.join(self.config.trainer.default_local_dir, "best_actor_checkpoint.json"))
+
+    def _load_best_actor_checkpoint(self):
+        if not self.config.trainer.get("keep_best_actor_ckpt", False):
+            return None
+        try:
+            with open(self._best_actor_checkpoint_metadata_path()) as f:
+                checkpoint = json.load(f)
+            return checkpoint if os.path.isdir(checkpoint["actor_path"]) else None
+        except (FileNotFoundError, KeyError, TypeError, json.JSONDecodeError):
+            return None
+
+    def _get_new_best_actor_metric(self, val_metrics):
+        if not self.config.trainer.get("keep_best_actor_ckpt", False):
+            return None
+        metric_name = self.config.trainer.get("best_actor_ckpt_metric", "val/success_rate")
+        try:
+            value = float(val_metrics[metric_name])
+        except (KeyError, TypeError, ValueError):
+            return None
+        if not math.isfinite(value):
+            return None
+        if self._best_actor_checkpoint is None:
+            return value
+        previous = float(self._best_actor_checkpoint["metric_value"])
+        mode = self.config.trainer.get("best_actor_ckpt_mode", "max")
+        if mode not in ("max", "min"):
+            raise ValueError(f"trainer.best_actor_ckpt_mode must be max or min, got {mode!r}")
+        return value if (value > previous if mode == "max" else value < previous) else None
+
+    def _record_best_actor_checkpoint(self, metric_value, actor_path):
+        checkpoint = {
+            "metric_name": self.config.trainer.get("best_actor_ckpt_metric", "val/success_rate"),
+            "metric_value": metric_value,
+            "global_step": self.global_steps,
+            "actor_path": os.path.abspath(actor_path),
+        }
+        metadata_path = self._best_actor_checkpoint_metadata_path()
+        os.makedirs(os.path.dirname(metadata_path), exist_ok=True)
+        temporary_path = f"{metadata_path}.{uuid.uuid4().hex}.tmp"
+        with open(temporary_path, "w") as f:
+            json.dump(checkpoint, f, indent=2)
+        os.replace(temporary_path, metadata_path)
+        self._best_actor_checkpoint = checkpoint
+        print(f"Best actor checkpoint: step {self.global_steps}, {checkpoint['metric_name']}={metric_value}")
+
+    def _save_checkpoint(self, best_actor_metric=None):
         # path: given_path + `/global_step_{global_steps}` + `/actor`
         local_global_step_folder = os.path.join(self.config.trainer.default_local_dir, f"global_step_{self.global_steps}")
 
@@ -927,7 +976,8 @@ class RayPPOTrainer:
         max_actor_ckpt_to_keep = self.config.trainer.get("max_actor_ckpt_to_keep", None) if not remove_previous_ckpt_in_save else 1
         max_critic_ckpt_to_keep = self.config.trainer.get("max_critic_ckpt_to_keep", None) if not remove_previous_ckpt_in_save else 1
 
-        self.actor_rollout_wg.save_checkpoint(actor_local_path, actor_remote_path, self.global_steps, max_ckpt_to_keep=max_actor_ckpt_to_keep)
+        protected_actor_paths = [self._best_actor_checkpoint["actor_path"]] if self._best_actor_checkpoint else None
+        self.actor_rollout_wg.save_checkpoint(actor_local_path, actor_remote_path, self.global_steps, max_ckpt_to_keep=max_actor_ckpt_to_keep, protected_paths=protected_actor_paths)
 
         if self.use_critic:
             critic_local_path = os.path.join(local_global_step_folder, "critic")
@@ -943,6 +993,12 @@ class RayPPOTrainer:
         local_latest_checkpointed_iteration = os.path.join(self.config.trainer.default_local_dir, "latest_checkpointed_iteration.txt")
         with open(local_latest_checkpointed_iteration, "w") as f:
             f.write(str(self.global_steps))
+
+        if best_actor_metric is not None:
+            self._record_best_actor_checkpoint(best_actor_metric, actor_local_path)
+            self.actor_rollout_wg.prune_checkpoints(
+                max_ckpt_to_keep=max_actor_ckpt_to_keep, protected_paths=[os.path.abspath(actor_local_path)]
+            )
 
     def _load_checkpoint(self):
         if self.config.trainer.resume_mode == "disable":
@@ -1295,6 +1351,7 @@ class RayPPOTrainer:
                             )
 
                     # validate
+                    best_actor_metric = None
                     if self.val_reward_fn is not None and self.config.trainer.test_freq > 0 and (is_last_step or self.global_steps % self.config.trainer.test_freq == 0):
                         log_training_stage("validation")
                         with _timer("testing", timing_raw):
@@ -1302,11 +1359,15 @@ class RayPPOTrainer:
                             if is_last_step:
                                 last_val_metrics = val_metrics
                         metrics.update(val_metrics)
+                        best_actor_metric = self._get_new_best_actor_metric(val_metrics)
 
-                    if self.config.trainer.save_freq > 0 and (is_last_step or self.global_steps % self.config.trainer.save_freq == 0):
+                    if (
+                        (self.config.trainer.save_freq > 0 and (is_last_step or self.global_steps % self.config.trainer.save_freq == 0))
+                        or best_actor_metric is not None
+                    ):
                         log_training_stage("save_checkpoint")
                         with _timer("save_checkpoint", timing_raw):
-                            self._save_checkpoint()
+                            self._save_checkpoint(best_actor_metric=best_actor_metric)
 
                 # training metrics
                 metrics.update(

@@ -180,6 +180,7 @@ python3 -m verl.trainer.main_ppo \
     trainer.save_freq=$trainer_save_freq \
     trainer.test_freq=$trainer_test_freq \
     trainer.max_actor_ckpt_to_keep=2 \
+    trainer.keep_best_actor_ckpt=True \
     trainer.max_critic_ckpt_to_keep=2 \
     trainer.total_epochs=150 \
     trainer.val_before_train=$trainer_val_before_train \

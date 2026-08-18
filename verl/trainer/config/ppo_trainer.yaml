@@ -291,6 +291,11 @@ trainer:
   del_local_ckpt_after_load: False
   default_local_dir: checkpoints/${trainer.project_name}/${trainer.experiment_name}
   max_actor_ckpt_to_keep: null
+  # Retain one actor checkpoint with the best validation metric in addition to
+  # the recent-checkpoint window above. Disabled by default for compatibility.
+  keep_best_actor_ckpt: false
+  best_actor_ckpt_metric: val/success_rate
+  best_actor_ckpt_mode: max # max or min
   max_critic_ckpt_to_keep: null
   # The timeout for ray worker group to wait for the register center to be ready
   ray_wait_register_center_timeout: 300

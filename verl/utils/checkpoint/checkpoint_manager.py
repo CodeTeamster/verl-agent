@@ -66,8 +66,23 @@ class BaseCheckpointManager:
     def load_checkpoint(self, local_path: str, hdfs_path: str = None, del_local_after_load: bool = False):
         raise NotImplementedError
 
-    def save_checkpoint(self, local_path: str, hdfs_path: str = None, global_step: int = 0, max_ckpt_to_keep: int = None):
+    def save_checkpoint(
+        self, local_path: str, hdfs_path: str = None, global_step: int = 0,
+        max_ckpt_to_keep: int = None, protected_paths: Optional[list[str]] = None,
+    ):
         raise NotImplementedError
+
+    def prune_checkpoints(self, max_ckpt_to_keep: int = None, protected_paths: Optional[list[str]] = None):
+        """Keep recent checkpoints and any explicitly protected checkpoint paths."""
+        if not isinstance(max_ckpt_to_keep, int) or max_ckpt_to_keep <= 0:
+            return
+        protected = {os.path.abspath(path) for path in (protected_paths or [])}
+        recent = {os.path.abspath(path) for path in self.previous_saved_paths[-max_ckpt_to_keep:]}
+        retained = protected | recent
+        paths_to_remove = [path for path in self.previous_saved_paths if os.path.abspath(path) not in retained]
+        if paths_to_remove:
+            self.remove_previous_save_local_path(paths_to_remove)
+        self.previous_saved_paths = [path for path in self.previous_saved_paths if os.path.abspath(path) in retained]
 
     @staticmethod
     def checkpath(local_path: str, hdfs_path: str):
