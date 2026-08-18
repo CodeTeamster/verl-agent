@@ -3,6 +3,7 @@ set -euo pipefail
 
 ENGINE=${1:-vllm}
 if [ "$#" -gt 0 ]; then shift; fi
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 : "${TRAINER_NNODES:?Set TRAINER_NNODES in quakecmd --envs}"
 : "${GPU_PER_POD:?Set GPU_PER_POD in quakecmd --envs}"
@@ -76,7 +77,7 @@ nvidia-smi
 
 # 1. Prepare placeholder parquet
 if [ ! -f "$TRAIN_PARQUET" ] || [ ! -f "$VAL_PARQUET" ]; then
-    python3 -m examples.data_preprocess.prepare \
+    python3 "${REPO_ROOT}/examples/data_preprocess/prepare.py" \
         --mode text \
         --local_dir "${PLACEHOLDER}" \
         --dataset_dir "${GEOMETRY3K_DATA}" \
