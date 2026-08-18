@@ -1,0 +1,127 @@
+# This is intentionally an evaluation-only configuration. It has no critic,
+# reference policy, reward model, training data, or optimizer loop.
+evaluation:
+  checkpoint_path: null  # verl global_step_N or an original HF model directory.
+  output_path: outputs/evaluation/alfworld_trajectory_metrics.json
+
+data:
+  val_files: null
+  val_batch_size: 32
+  dataloader_num_workers: 0
+  prompt_key: prompt
+  image_key: images
+  max_prompt_length: 2048
+  max_response_length: 512
+  return_raw_chat: true
+  filter_overlong_prompts: true
+  filter_overlong_prompts_workers: 1
+  truncation: error
+  trust_remote_code: false
+  apply_chat_template_kwargs: {}
+
+# ActorRolloutRefWorker constructs this actor to load the sharded FSDP actor
+# checkpoint. The optimizer object is required by the checkpoint format, but
+# it is never stepped by this evaluator.
+actor_rollout_ref:
+  model:
+    path: null
+    use_shm: false
+    external_lib: null
+    override_config: {}
+    enable_gradient_checkpointing: false
+    enable_activation_offload: false
+    use_remove_padding: true
+    use_fused_kernels: false
+    attn_implementation: flash_attention_2
+    trust_remote_code: false
+    lora_rank: 0
+    lora_alpha: 16
+    target_modules: all-linear
+    use_liger: false
+  actor:
+    strategy: fsdp
+    ppo_mini_batch_size: 128
+    ppo_micro_batch_size: null
+    ppo_micro_batch_size_per_gpu: 1
+    use_dynamic_bsz: false
+    ppo_max_token_len_per_gpu: 16384
+    ulysses_sequence_parallel_size: 1
+    use_torch_compile: true
+    fsdp_config:
+      fsdp_size: -1
+      model_dtype: bf16
+      param_offload: false
+      optimizer_offload: false
+      offload_policy: false
+      reshard_after_forward: true
+      wrap_policy:
+        min_num_params: 0
+    checkpoint:
+      contents: [model, optimizer, extra]
+    optim:
+      lr: 1.0e-6
+      lr_warmup_steps: -1
+      lr_warmup_steps_ratio: 0.0
+      min_lr_ratio: 0.0
+      num_cycles: 0.5
+      warmup_style: constant
+      total_training_steps: 0
+      weight_decay: 0.01
+  rollout:
+    name: vllm
+    mode: sync
+    prompt_length: ${data.max_prompt_length}
+    response_length: ${data.max_response_length}
+    dtype: bfloat16
+    tensor_model_parallel_size: 1
+    gpu_memory_utilization: 0.5
+    max_num_batched_tokens: 8192
+    max_model_len: null
+    max_num_seqs: 1024
+    # Required by ActorRolloutRefWorker for config compatibility; evaluation
+    # never calls the log-prob path.
+    log_prob_micro_batch_size: null
+    log_prob_micro_batch_size_per_gpu: 1
+    log_prob_use_dynamic_bsz: false
+    log_prob_max_token_len_per_gpu: 16384
+    ignore_eos: false
+    enforce_eager: true
+    free_cache_engine: false
+    load_format: dummy_dtensor
+    layered_summon: false
+    disable_log_stats: true
+    enable_chunked_prefill: false
+    n: 1
+    val_kwargs:
+      top_k: -1
+      top_p: 1.0
+      temperature: 0.4
+      n: 1
+      do_sample: true
+
+env:
+  env_name: alfworld/AlfredTWEnv
+  seed: 0
+  max_steps: 50
+  history_length: 2
+  resources_per_worker:
+    num_cpus: 0.1
+    num_gpus: 0
+  rollout:
+    n: 1
+  alfworld:
+    eval_dataset: eval_in_distribution
+    envs_per_worker: 4
+
+# multi_turn_loop accesses this flag even during validation.
+algorithm:
+  filter_groups:
+    enable: false
+
+trainer:
+  n_gpus_per_node: 4
+  nnodes: 1
+  device: cuda
+
+ray_init:
+  include_dashboard: false

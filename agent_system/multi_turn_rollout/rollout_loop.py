@@ -15,6 +15,7 @@
 
 import torch
 import numpy as np
+import time
 from verl import DataProto
 from verl.utils.dataset.rl_dataset import collate_fn
 from verl.utils.model import compute_position_id_with_mask
@@ -289,6 +290,7 @@ class TrajectoryCollector:
             gen_batch: DataProto, 
             actor_rollout_wg, 
             envs: EnvironmentManagerBase,
+            collect_trajectory_timing: bool = False,
             ) -> DataProto:
         """
         Collects trajectories through parallel agent-environment agent_loop.
@@ -307,6 +309,8 @@ class TrajectoryCollector:
 
         batch_size = len(gen_batch.batch)
 
+        # Start before reset so the measurement includes the complete agent request.
+        trajectory_start_time = time.perf_counter() if collect_trajectory_timing else None
         # Initial observations from the environment
         obs, infos = envs.reset(kwargs=gen_batch.non_tensor_batch.pop('env_kwargs', None))
 
@@ -330,6 +334,7 @@ class TrajectoryCollector:
         episode_lengths = np.zeros(batch_size, dtype=np.float32)
         episode_rewards = np.zeros(batch_size, dtype=np.float32)
         tool_callings = np.zeros(batch_size, dtype=np.float32)
+        trajectory_latencies = np.full(batch_size, np.nan, dtype=np.float64)
         # Trajectory collection loop
         for _step in range(self.config.env.max_steps):
             active_masks = np.logical_not(is_done)
@@ -396,6 +401,11 @@ class TrajectoryCollector:
                 total_batch_list[i].append(batch_list[i])
                 total_infos[i].append(infos[i])
 
+            step_end_time = time.perf_counter()
+            newly_done = np.logical_and(np.logical_not(is_done), dones)
+            if collect_trajectory_timing:
+                trajectory_latencies[newly_done] = step_end_time - trajectory_start_time
+
             # Update done states
             is_done = np.logical_or(is_done, dones)
                 
@@ -406,6 +416,9 @@ class TrajectoryCollector:
             if is_done.all():
                 break
         
+        if collect_trajectory_timing:
+            trajectory_latencies[np.isnan(trajectory_latencies)] = time.perf_counter() - trajectory_start_time
+
         success: Dict[str, np.ndarray] = envs.success_evaluator(
                     total_infos=total_infos,
                     total_batch_list=total_batch_list,
@@ -413,7 +426,10 @@ class TrajectoryCollector:
                     episode_lengths=episode_lengths,
                     )
         
-        return total_batch_list, episode_rewards, episode_lengths, success, traj_uid, tool_callings
+        results = total_batch_list, episode_rewards, episode_lengths, success, traj_uid, tool_callings
+        if collect_trajectory_timing:
+            return *results, trajectory_latencies
+        return results
     
     def dynamic_multi_turn_loop(
             self,
