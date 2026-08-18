@@ -25,28 +25,31 @@ if [ ! -d "$GEOMETRY3K_DATA" ]; then
     exit 2
 fi
 
-export VLLM_ATTENTION_BACKEND=FLASH_ATTN
+export VLLM_ATTENTION_BACKEND=XFORMERS
 export ALFWORLD_DATA="${ALFWORLD_DATA}"
 export HF_HUB_OFFLINE=1
 export HF_DATASETS_OFFLINE=1
 export TRANSFORMERS_OFFLINE=1
 
 TRAIN_DATA_SIZE=${TRAIN_DATA_SIZE:-16}
-VAL_DATA_SIZE=${VAL_DATA_SIZE:-32}
+VAL_DATA_SIZE=${VAL_DATA_SIZE:-128}
 GRPO_GROUP_SIZE=${GRPO_GROUP_SIZE:-8}
-MICRO_BATCH_SIZE=${MICRO_BATCH_SIZE:-4}
+MICRO_BATCH_SIZE=${MICRO_BATCH_SIZE:-32}
 ENVS_PER_WORKER=${ENVS_PER_WORKER:-4}
-ENV_CPU=${ENV_CPU:-0.05}
+ENV_CPU=${ENV_CPU:-0.1}
 ENFORCE_EAGER=${ENFORCE_EAGER:-false}
+GIGPO_GAMMA=${GIGPO_GAMMA:-0.95}
+GIGPO_STEP_ADVANTAGE_W=${GIGPO_STEP_ADVANTAGE_W:-1.0}
+GIGPO_MODE=${GIGPO_MODE:-mean_std_norm}
 
 RUN_DIR="${RUN_DIR}"
-PLACEHOLDER="${PLACEHOLDER_DATA_PATH}/alfworld_grpo_train${TRAIN_DATA_SIZE}_val${VAL_DATA_SIZE}"
+PLACEHOLDER="${PLACEHOLDER_DATA_PATH}/alfworld_gigpo_train${TRAIN_DATA_SIZE}_val${VAL_DATA_SIZE}"
 TRAIN_PARQUET="${PLACEHOLDER}/text/train.parquet"
 VAL_PARQUET="${PLACEHOLDER}/text/test.parquet"
 MODEL_PATH="${MODEL_PATH}"
 mkdir -p "$RUN_DIR" "$PLACEHOLDER"
 
-echo "================== Train preflight "==================
+echo "================== Train preflight =================="
 python3 - <<'PY'
 import ray
 
@@ -72,9 +75,12 @@ echo "GRPO_GROUP_SIZE=${GRPO_GROUP_SIZE}"
 echo "MICRO_BATCH_SIZE=${MICRO_BATCH_SIZE}"
 echo "ENVS_PER_WORKER=${ENVS_PER_WORKER}"
 echo "ENV_CPU=${ENV_CPU}"
+echo "GIGPO_GAMMA=${GIGPO_GAMMA}"
+echo "GIGPO_STEP_ADVANTAGE_W=${GIGPO_STEP_ADVANTAGE_W}"
+echo "GIGPO_MODE=${GIGPO_MODE}"
 nvidia-smi
 
-# 1. Prepare placeholder parquet
+# Prepare the text placeholder parquet files used by the trainer.
 if [ ! -f "$TRAIN_PARQUET" ] || [ ! -f "$VAL_PARQUET" ]; then
     python3 -m examples.data_preprocess.prepare \
         --mode text \
@@ -84,15 +90,16 @@ if [ ! -f "$TRAIN_PARQUET" ] || [ ! -f "$VAL_PARQUET" ]; then
         --val_data_size "${VAL_DATA_SIZE}"
 fi
 
-# 2. Train
 python3 -m verl.trainer.main_ppo \
-    algorithm.adv_estimator=grpo \
-    algorithm.standard_grpo=True \
+    algorithm.adv_estimator=gigpo \
     algorithm.use_kl_in_reward=False \
+    algorithm.gamma=${GIGPO_GAMMA} \
+    algorithm.gigpo.step_advantage_w=${GIGPO_STEP_ADVANTAGE_W} \
+    algorithm.gigpo.mode=${GIGPO_MODE} \
     data.train_files="$TRAIN_PARQUET" \
     data.val_files="$VAL_PARQUET" \
-    data.train_batch_size=$TRAIN_DATA_SIZE \
-    data.val_batch_size=$VAL_DATA_SIZE \
+    data.train_batch_size=${TRAIN_DATA_SIZE} \
+    data.val_batch_size=${VAL_DATA_SIZE} \
     data.max_prompt_length=2048 \
     data.max_response_length=512 \
     data.filter_overlong_prompts=True \
@@ -103,23 +110,27 @@ python3 -m verl.trainer.main_ppo \
     actor_rollout_ref.model.attn_implementation=flash_attention_2 \
     actor_rollout_ref.model.use_remove_padding=True \
     actor_rollout_ref.actor.optim.lr=1e-6 \
-    actor_rollout_ref.actor.ppo_mini_batch_size=$((TRAIN_DATA_SIZE * GRPO_GROUP_SIZE)) \
+    actor_rollout_ref.actor.ppo_mini_batch_size=256 \
     actor_rollout_ref.actor.ppo_micro_batch_size_per_gpu=${MICRO_BATCH_SIZE} \
     actor_rollout_ref.actor.use_kl_loss=True \
     actor_rollout_ref.actor.kl_loss_coef=0.01 \
     actor_rollout_ref.actor.kl_loss_type=low_var_kl \
     actor_rollout_ref.actor.fsdp_config.model_dtype=bf16 \
     actor_rollout_ref.actor.fsdp_config.param_offload=False \
+    actor_rollout_ref.actor.fsdp_config.optimizer_offload=False \
     actor_rollout_ref.actor.use_invalid_action_penalty=True \
     actor_rollout_ref.actor.invalid_action_penalty_coef=0.1 \
     actor_rollout_ref.rollout.log_prob_micro_batch_size_per_gpu=${MICRO_BATCH_SIZE} \
     actor_rollout_ref.rollout.tensor_model_parallel_size=1 \
     actor_rollout_ref.rollout.name="$ENGINE" \
-    actor_rollout_ref.rollout.gpu_memory_utilization=0.5 \
+    actor_rollout_ref.rollout.gpu_memory_utilization=0.6 \
     actor_rollout_ref.rollout.enable_chunked_prefill=False \
     actor_rollout_ref.rollout.enforce_eager=${ENFORCE_EAGER} \
     actor_rollout_ref.rollout.free_cache_engine=False \
+    actor_rollout_ref.rollout.val_kwargs.temperature=0.4 \
+    actor_rollout_ref.rollout.val_kwargs.do_sample=True \
     actor_rollout_ref.ref.log_prob_micro_batch_size_per_gpu=${MICRO_BATCH_SIZE} \
+    actor_rollout_ref.ref.fsdp_config.param_offload=True \
     ray_init.include_dashboard=False \
     +ray_init.address=auto \
     env.env_name=alfworld/AlfredTWEnv \
@@ -131,12 +142,12 @@ python3 -m verl.trainer.main_ppo \
     trainer.critic_warmup=0 \
     trainer.logger="['console','tensorboard']" \
     trainer.project_name=verl_agent_alfworld \
-    trainer.experiment_name=grpo_qwen2.5_1.5b \
+    trainer.experiment_name=gigpo_qwen2.5_1.5b \
     trainer.default_local_dir="${RUN_DIR}/ckpts" \
     trainer.n_gpus_per_node=${GPU_PER_POD} \
     trainer.nnodes=${TRAINER_NNODES} \
-    trainer.save_freq=25 \
-    trainer.test_freq=25 \
+    trainer.save_freq=5 \
+    trainer.test_freq=5 \
     trainer.max_actor_ckpt_to_keep=2 \
     trainer.total_epochs=150 \
     trainer.val_before_train=True \

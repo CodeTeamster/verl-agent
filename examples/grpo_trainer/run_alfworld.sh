@@ -3,7 +3,7 @@ ENGINE=${1:-vllm}
 if [ $# -gt 0 ]; then shift; fi
 
 # Keep the vLLM rollout backend aligned with the locally installed FlashAttention 2.
-export VLLM_ATTENTION_BACKEND=FLASH_ATTN
+export VLLM_ATTENTION_BACKEND=XFORMERS
 export VLLM_USE_V1=0
 export CUDA_VISIBLE_DEVICES=0,1,2,3
 
@@ -69,9 +69,9 @@ num_cpus_per_env_worker=0.1
 
 # 16 initial ALFWorld tasks × 8 trajectories per task = 128 trajectories per GRPO update.
 train_data_size=16
-val_data_size=32
+val_data_size=128
 group_size=8
-ppo_micro_batch_size_per_gpu=8 # A6000 x 4
+ppo_micro_batch_size_per_gpu=32 # A6000 x 4
 envs_per_worker=4 # A6000 x 4
 # True: trajectory-level standard GRPO with raw environment rewards. False:
 # agent-oriented GRPO with cross-step statistics and invalid-action shaping.
@@ -114,7 +114,7 @@ python3 -m verl.trainer.main_ppo \
     actor_rollout_ref.model.attn_implementation=flash_attention_2 \
     actor_rollout_ref.model.use_remove_padding=True \
     actor_rollout_ref.actor.optim.lr=1e-6 \
-    actor_rollout_ref.actor.ppo_mini_batch_size=$((train_data_size * group_size)) \
+    actor_rollout_ref.actor.ppo_mini_batch_size=256 \
     actor_rollout_ref.actor.ppo_micro_batch_size_per_gpu=$ppo_micro_batch_size_per_gpu \
     actor_rollout_ref.actor.use_kl_loss=True \
     actor_rollout_ref.actor.kl_loss_coef=0.01 \
@@ -127,7 +127,7 @@ python3 -m verl.trainer.main_ppo \
     actor_rollout_ref.rollout.log_prob_micro_batch_size_per_gpu=$ppo_micro_batch_size_per_gpu \
     actor_rollout_ref.rollout.tensor_model_parallel_size=1 \
     actor_rollout_ref.rollout.name=$ENGINE \
-    actor_rollout_ref.rollout.gpu_memory_utilization=0.5 \
+    actor_rollout_ref.rollout.gpu_memory_utilization=0.6 \
     actor_rollout_ref.rollout.enable_chunked_prefill=False \
     actor_rollout_ref.rollout.enforce_eager=False \
     actor_rollout_ref.rollout.free_cache_engine=False \
@@ -152,8 +152,8 @@ python3 -m verl.trainer.main_ppo \
     trainer.default_local_dir=${RUN_DIR}/checkpoints \
     trainer.n_gpus_per_node=$num_devices \
     trainer.nnodes=1 \
-    trainer.save_freq=25 \
-    trainer.test_freq=25 \
+    trainer.save_freq=5 \
+    trainer.test_freq=5 \
     trainer.max_actor_ckpt_to_keep=2 \
     trainer.total_epochs=150 \
     trainer.val_before_train=True \

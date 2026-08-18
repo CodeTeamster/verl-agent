@@ -102,8 +102,10 @@ python3 -m verl.trainer.main_ppo \
     actor_rollout_ref.actor.kl_loss_coef=0.01 \
     actor_rollout_ref.actor.kl_loss_type=low_var_kl \
     actor_rollout_ref.model.enable_gradient_checkpointing=True \
+    actor_rollout_ref.model.attn_implementation=flash_attention_2 \
     actor_rollout_ref.actor.fsdp_config.param_offload=False \
     actor_rollout_ref.actor.fsdp_config.optimizer_offload=False \
+    actor_rollout_ref.actor.fsdp_config.model_dtype=bf16 \
     actor_rollout_ref.rollout.log_prob_micro_batch_size_per_gpu=32 \
     actor_rollout_ref.rollout.tensor_model_parallel_size=1 \
     actor_rollout_ref.rollout.name=$ENGINE \
@@ -137,6 +139,7 @@ python3 -m verl.trainer.main_ppo \
     trainer.nnodes=1 \
     trainer.save_freq=5 \
     trainer.test_freq=5 \
+    trainer.max_actor_ckpt_to_keep=2 \
     trainer.total_epochs=150 \
     trainer.val_before_train=True \
     hydra.run.dir=${RUN_DIR}/hydra $@
