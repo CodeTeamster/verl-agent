@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Quake driver: run the repository's ALFWorld GRPO launcher."""
+"""Quake driver: run the selected repository ALFWorld launcher."""
 
 from __future__ import annotations
 
@@ -51,8 +51,8 @@ def _wait_for_platform_ray(expected_gpus: int) -> None:
 def main() -> None:
     repo_root = Path(__file__).resolve().parents[1]
     runner_name = os.environ.get("ALFWORLD_RUNNER")
-    if runner_name not in {"run_alfworld.sh", "run_alfworld_ppu.sh"}:
-        raise RuntimeError("Set ALFWORLD_RUNNER through launch_alfworld_grpo.sh")
+    if runner_name not in {"run_alfworld_grpo.sh", "run_alfworld_gigpo.sh"}:
+        raise RuntimeError("Set ALGORITHM through launch_alfworld_grpo.sh")
     launcher = repo_root / "quakecmd_env" / runner_name
     if not (repo_root / "verl").is_dir() or not launcher.is_file():
         raise RuntimeError(f"Incomplete verl-agent checkout under {repo_root}")
