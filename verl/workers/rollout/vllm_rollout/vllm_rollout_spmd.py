@@ -204,6 +204,15 @@ class vLLMRollout(BaseRollout):
             **engine_kwargs,
         )
 
+        engine_module = type(self.inference_engine.llm_engine).__module__
+        engine_mode = "V1" if engine_module.startswith("vllm.v1.") else "V0"
+        logger.warning(
+            "vLLM engine mode=%s module=%s VLLM_USE_V1=%s",
+            engine_mode,
+            engine_module,
+            os.getenv("VLLM_USE_V1", "<unset>"),
+        )
+
         # Offload vllm model to reduce peak memory usage
         self.inference_engine.sleep(level=1)
 
