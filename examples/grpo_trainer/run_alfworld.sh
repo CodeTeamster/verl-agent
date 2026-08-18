@@ -14,7 +14,7 @@ if [ -z "${STORAGE_ROOT:-}" ]; then
         export STORAGE_ROOT=/home/jovyan/nas/yrc
     fi
 fi
-export HF_HOME="${HF_HOME:-${STORAGE_ROOT}/cache/huggingface}"
+export HF_HOME="${HF_HOME:-${STORAGE_ROOT}/.cache/huggingface}"
 export HF_DATASETS_CACHE="${HF_DATASETS_CACHE:-${HF_HOME}/datasets}"
 export HF_HUB_OFFLINE=1
 export HF_DATASETS_OFFLINE=1
