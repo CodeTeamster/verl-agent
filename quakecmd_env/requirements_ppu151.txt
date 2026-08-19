@@ -1,0 +1,41 @@
+# PPU 1.5.1 supplies Python 3.12, PyTorch, and the PPU vLLM distribution.
+# Do not reinstall vLLM or install NVIDIA/CUDA packages such as flash-attn,
+# liger-kernel, or a CUDA-specific wheel.
+
+# These pins keep Quake's qtrain-supervisor and the image-provided vLLM in a
+# compatible dependency range; the remaining packages follow setup.py.
+setuptools>=74.1.1
+protobuf==3.20.3
+requests==2.27.0
+ray[default]==2.46.0
+click==8.1.7
+opentelemetry-api==1.26.0
+opentelemetry-sdk==1.26.0
+opentelemetry-proto==1.26.0
+opentelemetry-semantic-conventions==0.47b0
+opentelemetry-exporter-prometheus==0.47b0
+wandb==0.16.6
+
+accelerate
+codetiming
+# Newer datasets releases require requests>=2.32 and conflict with the
+# platform-provided qtrain-supervisor.
+datasets==2.18.0
+dill
+hydra-core
+numpy
+pandas
+peft
+pyarrow>=15.0.0
+pybind11
+pylatexenc
+pylint==3.3.6
+tensordict<=0.6.2
+torchdata
+transformers==4.51.1
+
+# Official ALFWorld installation instructions.
+gymnasium==0.29.1
+stable-baselines3==2.6.0
+alfworld
+thinc==8.3.4

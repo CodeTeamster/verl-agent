@@ -25,6 +25,11 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--mode', default='visual', choices=['visual', 'text'])
     parser.add_argument('--local_dir', default='~/data/verl-agent/')
+    parser.add_argument(
+        '--dataset_dir',
+        default=None,
+        help='Local Geometry3K parquet cache directory. Defaults to downloading hiyouga/geometry3k.',
+    )
     parser.add_argument('--hdfs_dir', default=None)
     parser.add_argument('--train_data_size', default=256, type=int)
     parser.add_argument('--val_data_size', default=256, type=int)
@@ -32,10 +37,20 @@ if __name__ == '__main__':
     args = parser.parse_args()
     print(f"processing data for mode: {args.mode}")
     args.local_dir = os.path.join(args.local_dir, args.mode)
+    os.makedirs(args.local_dir, exist_ok=True)
 
     data_source = 'hiyouga/geometry3k'
 
-    dataset = datasets.load_dataset(data_source)
+    if args.dataset_dir is not None and os.path.isdir(args.dataset_dir):
+        dataset = datasets.load_dataset(
+            'parquet',
+            data_files={
+                'train': os.path.join(args.dataset_dir, 'data', 'train-*.parquet'),
+                'test': os.path.join(args.dataset_dir, 'data', 'test-*.parquet'),
+            },
+        )
+    else:
+        dataset = datasets.load_dataset(data_source)
 
     train_dataset = dataset['train'].select(range(args.train_data_size))
     test_dataset = dataset['test'].select(range(args.val_data_size))

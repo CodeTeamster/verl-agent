@@ -1,0 +1,44 @@
+# Official paper environment.  Keep these constraints aligned with the
+# repository's requirements.txt, setup.py, and ALFWorld installation guide.
+# PyTorch is intentionally not pinned here because it is supplied by the
+# selected Quake image.
+
+# Keep Quake's control-plane dependencies compatible with its preinstalled
+# qtrain-supervisor and with the vLLM supplied by the A100 base image.
+protobuf==3.20.3
+requests==2.27.0
+ray[default]==2.46.0
+click==8.1.7
+opentelemetry-api==1.26.0
+opentelemetry-sdk==1.26.0
+opentelemetry-proto==1.26.0
+opentelemetry-semantic-conventions==0.47b0
+opentelemetry-exporter-prometheus==0.47b0
+wandb==0.16.6
+
+accelerate
+/jindofs_temp/users/533353/downloads/flash_attn-2.7.4.post1+cu12torch2.6cxx11abiFALSE-cp310-cp310-linux_x86_64.whl
+codetiming
+# Newer datasets releases require requests>=2.32 and would overwrite the
+# qtrain-supervisor-compatible requests pin above.
+datasets==2.18.0
+dill
+flash-attn
+hydra-core
+liger-kernel
+numpy
+pandas
+peft
+pyarrow>=15.0.0
+pybind11
+pylatexenc
+pylint==3.3.6
+tensordict<=0.6.2
+torchdata
+transformers==4.51.1
+
+# Official ALFWorld installation instructions.
+gymnasium==0.29.1
+stable-baselines3==2.6.0
+alfworld
+thinc==8.3.4
