@@ -207,11 +207,17 @@ trainer:
   resume_from_path: null
   val_before_train: True
   test_freq: -1
+  validation_metrics_csv: null
   critic_warmup: 0
   default_hdfs_dir: null
   del_local_ckpt_after_load: False
   default_local_dir: checkpoints/${trainer.project_name}/${trainer.experiment_name}
   max_actor_ckpt_to_keep: null
+  # Retain the actor checkpoint with the best validation metric in addition to
+  # the recent-checkpoint window above.
+  keep_best_actor_ckpt: false
+  best_actor_ckpt_metric: val/success_rate
+  best_actor_ckpt_mode: max # max or min
   max_critic_ckpt_to_keep: null
 
 

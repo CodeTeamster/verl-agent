@@ -137,10 +137,13 @@ python3 -m verl.trainer.main_ppo \
     trainer.project_name=verl_agent_alfworld \
     trainer.experiment_name=grpo_qwen2.5_1.5b \
     trainer.default_local_dir="${RUN_DIR}/ckpts" \
+    trainer.validation_metrics_csv="${RUN_DIR}/validation_metrics.csv" \
     trainer.n_gpus_per_node=${GPU_PER_POD} \
     trainer.nnodes=${TRAINER_NNODES} \
     trainer.save_freq=${SAVE_FREQ} \
     trainer.test_freq=5 \
+    trainer.max_actor_ckpt_to_keep=2 \
+    trainer.keep_best_actor_ckpt=True \
     trainer.total_epochs=150 \
     trainer.val_before_train=True \
     hydra.run.dir="${RUN_DIR}/hydra" \

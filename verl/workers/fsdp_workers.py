@@ -583,7 +583,7 @@ class ActorRolloutRefWorker(Worker):
         return output
 
     @register(dispatch_mode=Dispatch.ONE_TO_ALL)
-    def save_checkpoint(self, local_path, hdfs_path=None, global_step=0, max_ckpt_to_keep=None):
+    def save_checkpoint(self, local_path, hdfs_path=None, global_step=0, max_ckpt_to_keep=None, protected_paths=None):
         # only support save and load ckpt for actor
         assert self._is_actor
         import torch
@@ -593,11 +593,19 @@ class ActorRolloutRefWorker(Worker):
         self.checkpoint_manager.save_checkpoint(local_path=local_path,
                                                 hdfs_path=hdfs_path,
                                                 global_step=global_step,
-                                                max_ckpt_to_keep=max_ckpt_to_keep)
+                                                max_ckpt_to_keep=max_ckpt_to_keep,
+                                                protected_paths=protected_paths)
 
         torch.distributed.barrier()
         if self._is_offload_param:
             offload_fsdp_model_to_cpu(self.actor_module_fsdp)
+
+    @register(dispatch_mode=Dispatch.ONE_TO_ALL)
+    def prune_checkpoints(self, max_ckpt_to_keep=None, protected_paths=None):
+        assert self._is_actor
+        self.checkpoint_manager.prune_checkpoints(max_ckpt_to_keep=max_ckpt_to_keep,
+                                                  protected_paths=protected_paths)
+        torch.distributed.barrier()
 
     @register(dispatch_mode=Dispatch.ONE_TO_ALL)
     def load_checkpoint(self, local_path, hdfs_path=None, del_local_after_load=False):
