@@ -122,7 +122,9 @@ class _TensorboardAdapter:
     def __init__(self):
         from torch.utils.tensorboard import SummaryWriter
         import os
-        tensorboard_dir = os.environ.get("TENSORBOARD_DIR", "tensorboard_log")
+        tensorboard_dir = os.environ.get("QUAKE_TENSORBOARD_DIR") or os.environ.get(
+            "TENSORBOARD_DIR", "tensorboard_log"
+        )
         os.makedirs(tensorboard_dir, exist_ok=True)
         print(f"Saving tensorboard log to {tensorboard_dir}.")
         self.writer = SummaryWriter(tensorboard_dir)

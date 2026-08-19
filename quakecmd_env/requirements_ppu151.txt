@@ -31,6 +31,7 @@ pybind11
 pylatexenc
 pylint==3.3.6
 tensordict<=0.6.2
+tensorboard==2.16.2
 torchdata
 transformers==4.51.1
 

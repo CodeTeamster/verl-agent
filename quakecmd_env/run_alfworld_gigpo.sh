@@ -5,6 +5,7 @@ ENGINE=${1:-vllm}
 if [ "$#" -gt 0 ]; then shift; fi
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$REPO_ROOT"
+export PYTHONPATH="${REPO_ROOT}${PYTHONPATH:+:${PYTHONPATH}}"
 
 : "${TRAINER_NNODES:?Set TRAINER_NNODES in quakecmd --envs}"
 : "${GPU_PER_POD:?Set GPU_PER_POD in quakecmd --envs}"
@@ -51,12 +52,14 @@ awk '
   /MemTotal/ {total = $2}
   /MemAvailable/ {available = $2}
   END {
-    printf "MEMORY_TOTAL_GIB=%.2f\\n", total / 1024 / 1024
-    printf "MEMORY_AVAILABLE_GIB=%.2f\\n", available / 1024 / 1024
+    print "MEMORY_TOTAL_GIB=" sprintf("%.2f", total / 1024 / 1024)
+    print "MEMORY_AVAILABLE_GIB=" sprintf("%.2f", available / 1024 / 1024)
   }
 ' /proc/meminfo
 echo "ALGORITHM=gigpo"
 echo "ALFWORLD_ACCELERATOR=${ALFWORLD_ACCELERATOR:-nvidia}"
+echo "REPO_ROOT=${REPO_ROOT}"
+echo "PYTHONPATH=${PYTHONPATH}"
 echo "TRAINER_NNODES=${TRAINER_NNODES} GPU_PER_POD=${GPU_PER_POD} VLLM_TP_SIZE=${VLLM_TP_SIZE}"
 echo "MODEL_PATH=${MODEL_PATH}"
 echo "ALFWORLD_DATA=${ALFWORLD_DATA}"
@@ -83,7 +86,7 @@ PY
 nvidia-smi
 
 if [ ! -f "$TRAIN_PARQUET" ] || [ ! -f "$VAL_PARQUET" ]; then
-    python3 -m examples.data_preprocess.prepare \
+    python3 "${REPO_ROOT}/examples/data_preprocess/prepare.py" \
         --mode text \
         --local_dir "${PLACEHOLDER}" \
         --dataset_dir "${GEOMETRY3K_DATA}" \
@@ -135,7 +138,7 @@ python3 -m verl.trainer.main_ppo \
     env.max_steps=50 \
     env.rollout.n=${GRPO_GROUP_SIZE} \
     trainer.critic_warmup=0 \
-    trainer.logger="['console']" \
+    trainer.logger="['console','tensorboard']" \
     trainer.project_name=verl_agent_alfworld \
     trainer.experiment_name=gigpo_qwen2.5_1.5b \
     trainer.default_local_dir="${RUN_DIR}/ckpts" \
