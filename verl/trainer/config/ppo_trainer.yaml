@@ -72,6 +72,8 @@ actor_rollout_ref:
     ulysses_sequence_parallel_size: ${actor_rollout_ref.actor.ulysses_sequence_parallel_size} # sp size
   rollout:
     name: vllm
+    # Required by recent vLLM versions when TP uses the external launcher.
+    seed: 0
     temperature: 1.0
     top_k: -1 # 0 for hf rollout, -1 for vllm rollout
     top_p: 1

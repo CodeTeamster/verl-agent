@@ -24,11 +24,15 @@ from .fsdp_ulysses import FSDPUlyssesShardingManager
 AllGatherPPModel = None
 
 if is_megatron_core_available() and is_vllm_available():
-    from .megatron_vllm import AllGatherPPModel, MegatronVLLMShardingManager
-elif AllGatherPPModel is not None:
-    pass
+    try:
+        from .megatron_vllm import AllGatherPPModel, MegatronVLLMShardingManager
+    except ImportError:
+        # Some accelerator images include a megatron-core version whose API is
+        # incompatible with this optional Megatron backend.  FSDP does not use
+        # it and must remain importable.
+        AllGatherPPModel = None
+        MegatronVLLMShardingManager = None
 else:
-    AllGatherPPModel = None
     MegatronVLLMShardingManager = None
 
 if is_vllm_available():

@@ -4,6 +4,7 @@ set -euo pipefail
 ENGINE=${1:-vllm}
 if [ "$#" -gt 0 ]; then shift; fi
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "$REPO_ROOT"
 
 : "${TRAINER_NNODES:?Set TRAINER_NNODES in quakecmd --envs}"
 : "${GPU_PER_POD:?Set GPU_PER_POD in quakecmd --envs}"
@@ -45,6 +46,28 @@ VAL_PARQUET="${PLACEHOLDER}/text/test.parquet"
 mkdir -p "$RUN_DIR" "$PLACEHOLDER"
 
 echo "================== Train preflight =================="
+awk '
+  /MemTotal/ {total = $2}
+  /MemAvailable/ {available = $2}
+  END {
+    printf "MEMORY_TOTAL_GIB=%.2f\\n", total / 1024 / 1024
+    printf "MEMORY_AVAILABLE_GIB=%.2f\\n", available / 1024 / 1024
+  }
+' /proc/meminfo
+echo "ALGORITHM=grpo"
+echo "ALFWORLD_ACCELERATOR=${ALFWORLD_ACCELERATOR:-nvidia}"
+echo "TRAINER_NNODES=${TRAINER_NNODES} GPU_PER_POD=${GPU_PER_POD} VLLM_TP_SIZE=${VLLM_TP_SIZE}"
+echo "MODEL_PATH=${MODEL_PATH}"
+echo "ALFWORLD_DATA=${ALFWORLD_DATA}"
+echo "GEOMETRY3K_DATA=${GEOMETRY3K_DATA}"
+echo "RUN_DIR=${RUN_DIR}"
+echo "TRAIN_DATA_SIZE=${TRAIN_DATA_SIZE} VAL_DATA_SIZE=${VAL_DATA_SIZE} GRPO_GROUP_SIZE=${GRPO_GROUP_SIZE}"
+echo "MICRO_BATCH_SIZE=${MICRO_BATCH_SIZE} ENFORCE_EAGER=${ENFORCE_EAGER} SAVE_FREQ=${SAVE_FREQ}"
+for name in LAUNCH_RAY RAY_ADDRESS VLLM_USE_V1; do
+    if [ -n "${!name:-}" ]; then
+        echo "${name}=${!name}"
+    fi
+done
 python3 - <<'PY'
 import ray
 
@@ -56,8 +79,6 @@ for node in ray.nodes():
 ray.shutdown()
 PY
 nvidia-smi
-echo "TRAIN_DATA_SIZE=${TRAIN_DATA_SIZE} VAL_DATA_SIZE=${VAL_DATA_SIZE} GRPO_GROUP_SIZE=${GRPO_GROUP_SIZE}"
-echo "MICRO_BATCH_SIZE=${MICRO_BATCH_SIZE} VLLM_TP_SIZE=${VLLM_TP_SIZE}"
 
 if [ ! -f "$TRAIN_PARQUET" ] || [ ! -f "$VAL_PARQUET" ]; then
     python3 -m examples.data_preprocess.prepare \
@@ -109,7 +130,7 @@ python3 -m verl.trainer.main_ppo \
     env.max_steps=50 \
     env.rollout.n=${GRPO_GROUP_SIZE} \
     trainer.critic_warmup=0 \
-    trainer.logger="['console','wandb']" \
+    trainer.logger="['console']" \
     trainer.project_name=verl_agent_alfworld \
     trainer.experiment_name=grpo_qwen2.5_1.5b \
     trainer.default_local_dir="${RUN_DIR}/ckpts" \
