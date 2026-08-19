@@ -558,8 +558,11 @@ def make_envs(config):
             alf_config_path = os.path.join(os.path.dirname(__file__), 'env_package/alfworld/configs/config_tw.yaml')
         else:
             raise ValueError(f"Unsupported environment: {config.env.env_name}")
-        _envs = build_alfworld_envs(alf_config_path, config.env.seed, config.data.train_batch_size, group_n, is_train=True)
-        _val_envs = build_alfworld_envs(alf_config_path, config.env.seed + 1000, config.data.val_batch_size, 1, is_train=False)
+        envs_per_worker = config.env.alfworld.get('envs_per_worker', 1)
+        _envs = build_alfworld_envs(alf_config_path, config.env.seed, config.data.train_batch_size, group_n,
+                                    is_train=True, envs_per_worker=envs_per_worker)
+        _val_envs = build_alfworld_envs(alf_config_path, config.env.seed + 1000, config.data.val_batch_size, 1,
+                                        is_train=False, envs_per_worker=envs_per_worker)
         
         projection_f = partial(alfworld_projection)
         envs = AlfWorldEnvironmentManager(_envs, projection_f, config.env.env_name)

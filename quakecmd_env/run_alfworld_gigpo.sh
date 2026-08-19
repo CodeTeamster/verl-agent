@@ -30,6 +30,7 @@ GIGPO_GAMMA=${GIGPO_GAMMA:-0.95}
 GIGPO_STEP_ADVANTAGE_W=${GIGPO_STEP_ADVANTAGE_W:-1.0}
 GIGPO_MODE=${GIGPO_MODE:-mean_std_norm}
 SAVE_FREQ=${SAVE_FREQ:--1}
+ENVS_PER_WORKER=${ENVS_PER_WORKER:-1}
 
 if (( GPU_PER_POD % VLLM_TP_SIZE != 0 )); then
     echo "ERROR: GPU_PER_POD=${GPU_PER_POD} must be divisible by VLLM_TP_SIZE=${VLLM_TP_SIZE}." >&2
@@ -66,7 +67,7 @@ echo "ALFWORLD_DATA=${ALFWORLD_DATA}"
 echo "GEOMETRY3K_DATA=${GEOMETRY3K_DATA}"
 echo "RUN_DIR=${RUN_DIR}"
 echo "TRAIN_DATA_SIZE=${TRAIN_DATA_SIZE} VAL_DATA_SIZE=${VAL_DATA_SIZE} GRPO_GROUP_SIZE=${GRPO_GROUP_SIZE}"
-echo "MICRO_BATCH_SIZE=${MICRO_BATCH_SIZE} ENFORCE_EAGER=${ENFORCE_EAGER} SAVE_FREQ=${SAVE_FREQ}"
+echo "MICRO_BATCH_SIZE=${MICRO_BATCH_SIZE} ENVS_PER_WORKER=${ENVS_PER_WORKER} ENFORCE_EAGER=${ENFORCE_EAGER} SAVE_FREQ=${SAVE_FREQ}"
 echo "GIGPO_GAMMA=${GIGPO_GAMMA} GIGPO_STEP_ADVANTAGE_W=${GIGPO_STEP_ADVANTAGE_W} GIGPO_MODE=${GIGPO_MODE}"
 for name in LAUNCH_RAY RAY_ADDRESS VLLM_USE_V1; do
     if [ -n "${!name:-}" ]; then
@@ -137,6 +138,7 @@ python3 -m verl.trainer.main_ppo \
     env.seed=0 \
     env.max_steps=50 \
     env.rollout.n=${GRPO_GROUP_SIZE} \
+    env.alfworld.envs_per_worker=${ENVS_PER_WORKER} \
     trainer.critic_warmup=0 \
     trainer.logger="['console','tensorboard']" \
     trainer.project_name=verl_agent_alfworld \

@@ -29,6 +29,7 @@ MICRO_BATCH_SIZE=${MICRO_BATCH_SIZE:-32}
 VLLM_TP_SIZE=${VLLM_TP_SIZE:-2}
 ENFORCE_EAGER=${ENFORCE_EAGER:-false}
 SAVE_FREQ=${SAVE_FREQ:--1}
+ENVS_PER_WORKER=${ENVS_PER_WORKER:-1}
 
 if (( GPU_PER_POD % VLLM_TP_SIZE != 0 )); then
     echo "ERROR: GPU_PER_POD=${GPU_PER_POD} must be divisible by VLLM_TP_SIZE=${VLLM_TP_SIZE}." >&2
@@ -65,7 +66,7 @@ echo "ALFWORLD_DATA=${ALFWORLD_DATA}"
 echo "GEOMETRY3K_DATA=${GEOMETRY3K_DATA}"
 echo "RUN_DIR=${RUN_DIR}"
 echo "TRAIN_DATA_SIZE=${TRAIN_DATA_SIZE} VAL_DATA_SIZE=${VAL_DATA_SIZE} GRPO_GROUP_SIZE=${GRPO_GROUP_SIZE}"
-echo "MICRO_BATCH_SIZE=${MICRO_BATCH_SIZE} ENFORCE_EAGER=${ENFORCE_EAGER} SAVE_FREQ=${SAVE_FREQ}"
+echo "MICRO_BATCH_SIZE=${MICRO_BATCH_SIZE} ENVS_PER_WORKER=${ENVS_PER_WORKER} ENFORCE_EAGER=${ENFORCE_EAGER} SAVE_FREQ=${SAVE_FREQ}"
 for name in LAUNCH_RAY RAY_ADDRESS VLLM_USE_V1; do
     if [ -n "${!name:-}" ]; then
         echo "${name}=${!name}"
@@ -132,6 +133,7 @@ python3 -m verl.trainer.main_ppo \
     env.seed=0 \
     env.max_steps=50 \
     env.rollout.n=${GRPO_GROUP_SIZE} \
+    env.alfworld.envs_per_worker=${ENVS_PER_WORKER} \
     trainer.critic_warmup=0 \
     trainer.logger="['console','tensorboard']" \
     trainer.project_name=verl_agent_alfworld \
