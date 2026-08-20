@@ -260,8 +260,10 @@ class AlfredTWEnv(object):
         elif training_method == "dagger":
             max_nb_steps_per_episode = self.config["dagger"]["training"]["max_nb_steps_per_episode"]
 
-            expert_plan = True if self.train_eval == "train" else False
-            if expert_plan:
+            # GRPO/GiGPO do not consume expert_plan. Keep the expert wrapper
+            # opt-in because it can fail on states produced by a learned policy.
+            enable_expert_plan = self.config["env"].get("enable_expert_plan", False)
+            if self.train_eval == "train" and enable_expert_plan:
                 wrappers.append(AlfredExpert(expert_type))
                 request_infos.extras.append("expert_plan")
 
